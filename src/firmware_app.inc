@@ -19,8 +19,10 @@ void sleepFor24hOrButton(){
   esp_sleep_enable_timer_wakeup(
     (uint64_t)AUTO_SYNC_HOURS*60ULL*60ULL*1000000ULL
   );
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)SYNC_BUTTON_PIN,0);
-  Serial.println("Entering deep sleep. GPIO4 wakes for manual sync.");
+  esp_sleep_enable_ext1_wakeup(1ULL << SYNC_BUTTON_PIN,ESP_EXT1_WAKEUP_ANY_LOW);
+  rtc_gpio_pullup_en((gpio_num_t)SYNC_BUTTON_PIN);
+  rtc_gpio_pulldown_dis((gpio_num_t)SYNC_BUTTON_PIN);
+  Serial.println("Entering deep sleep. E1002 KEY0 / GPIO3 wakes for manual sync.");
   delay(100);
   esp_deep_sleep_start();
 }
@@ -31,7 +33,7 @@ void setup(){
   pinMode(SYNC_BUTTON_PIN,INPUT_PULLUP);
 
   bool manualWake=
-    esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_EXT0;
+    esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_EXT1;
 
   Serial.printf(
     "Calendar Display v0.1 (%s wake)\n",
