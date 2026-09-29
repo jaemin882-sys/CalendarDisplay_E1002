@@ -93,7 +93,7 @@ int takeTextLine(const String& input,int startByte,int maxPixels,String& out){
   return i;
 }
 
-static constexpr int EVENT_TRACKING=-2;
+static constexpr int EVENT_TRACKING=-1;
 
 int eventGlyphAdvance(const char* utf8,const uint8_t* font){
   return max(1,glyphWidthFor(utf8,font)+EVENT_TRACKING);
