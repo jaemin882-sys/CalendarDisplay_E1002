@@ -151,16 +151,16 @@ bool configurationLooksValid(){
   return true;
 }
 
-void currentMonthWindow(time_t& monthStart,time_t& nextMonth){
+void displayWindow(time_t& windowStart,time_t& windowEnd){
   struct tm now={};
   getLocalTime(&now,100);
-  now.tm_mday=1;
   now.tm_hour=0;
   now.tm_min=0;
   now.tm_sec=0;
   now.tm_isdst=-1;
-  monthStart=mktime(&now);
 
-  now.tm_mon+=1;
-  nextMonth=mktime(&now);
+  time_t todayMidnight=mktime(&now);
+  int daysSinceSunday=now.tm_wday;
+  windowStart=todayMidnight-(time_t)(daysSinceSunday+14)*86400;
+  windowEnd=windowStart+(time_t)42*86400;
 }
