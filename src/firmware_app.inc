@@ -74,13 +74,17 @@ void setup(){
     now.tm_mday=1;
   }
 
-  int year=now.tm_year+1900;
-  int month1=now.tm_mon+1;
-  int today=now.tm_mday;
+  now.tm_hour=0;
+  now.tm_min=0;
+  now.tm_sec=0;
+  now.tm_isdst=-1;
+  time_t todayMidnight=mktime(&now);
+  time_t windowStart=0,windowEnd=0;
+  displayWindow(windowStart,windowEnd);
 
   initDisplay();
 
-  uint32_t hash=computeRenderHash(year,month1);
+  uint32_t hash=computeRenderHash(windowStart);
   prefs.begin("caldisplay",false);
   uint32_t oldHash=prefs.getUInt("renderHash",0);
 
@@ -89,7 +93,7 @@ void setup(){
   if(dataOk){
     bool shouldRender=manualWake || oldHash!=hash || firstSuccessfulRender;
     if(shouldRender){
-      drawCalendarPage(year,month1,today,true);
+      drawCalendarPage(todayMidnight,true);
       prefs.putUInt("renderHash",hash);
     }
   }else if(firstSuccessfulRender){
