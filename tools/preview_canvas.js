@@ -9,7 +9,7 @@ function text(s,x,y,color=black,font='body'){
  ctx.fillStyle=color;
  for(const c of s){const g=glyph(c,font);for(let row=0;row<32;row++)for(let col=0;col<24;col++)if(g[row+1]&(1<<col))ctx.fillRect(x+col,y-24+row,1,1);x+=g[font==='body'?0:33];}
 }
-const eventAdvance=c=>Math.max(1,glyph(c)[0]-2);
+const eventAdvance=c=>Math.max(1,glyph(c)[0]-1);
 function eventWidth(s){return Array.from(s).reduce((n,c)=>n+eventAdvance(c),0);}
 function eventText(s,x,y,color=black){
  ctx.fillStyle=color;
