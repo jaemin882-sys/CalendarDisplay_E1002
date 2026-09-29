@@ -21,9 +21,9 @@ int drawUtf8Korean(int x,int baselineY,const String& text,uint16_t color,int max
     char buf[8]={0};
     ch.toCharArray(buf,sizeof(buf));
 
-    const uint8_t* font=u8g2_font_gulim14_t_korean1;
+    const uint8_t* font=u8g2_font_unifont_t_korean1;
     int w=glyphWidthFor(buf,font);
-    if(w<=0){ font=u8g2_font_gulim14_t_korean2; w=glyphWidthFor(buf,font); }
+    if(w<=0){ font=u8g2_font_unifont_t_korean2; w=glyphWidthFor(buf,font); }
     if(w<=0){ font=u8g2_font_helvR10_tf; w=glyphWidthFor(buf,font); }
     if(w<=0) w=8;
     if(maxWidth>0 && cursor+w>x+maxWidth) break;
@@ -47,8 +47,8 @@ String fitText(const String& input,int maxPixels){
     char buf[8]={0};
     ch.toCharArray(buf,sizeof(buf));
 
-    int w=glyphWidthFor(buf,u8g2_font_gulim14_t_korean1);
-    if(w<=0) w=glyphWidthFor(buf,u8g2_font_gulim14_t_korean2);
+    int w=glyphWidthFor(buf,u8g2_font_unifont_t_korean1);
+    if(w<=0) w=glyphWidthFor(buf,u8g2_font_unifont_t_korean2);
     if(w<=0) w=glyphWidthFor(buf,u8g2_font_helvR10_tf);
     if(w<=0) w=8;
 
