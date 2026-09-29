@@ -17,11 +17,14 @@
 #define CALENDAR_4_NAME ""
 #define CALENDAR_4_URL  ""
 
-// Text shown in the memo area above the monthly calendar.
-#define CUSTOM_MEMO_TEXT "이번 달 메모를 여기에 적으세요"
+// Household title above the rolling six-week calendar.
+#define CUSTOM_MEMO_TEXT "온이네집"
 
 // Korea Standard Time. Change if needed.
 #define TZ_INFO "KST-9"
 
 // Automatic refresh interval while sleeping.
 #define AUTO_SYNC_HOURS 24
+
+// Advanced: optional alternative Korea public holiday ICS URL.
+// #define HOLIDAY_ICS_URL "https://..."

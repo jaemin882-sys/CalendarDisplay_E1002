@@ -3,6 +3,11 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <vector>
+#include <algorithm>
+#include "esp_heap_caps.h"
+#include "esp_idf_version.h"
+#include "esp_sntp.h"
 #include <SPI.h>
 #include <Preferences.h>
 #include "esp_sleep.h"
@@ -10,6 +15,7 @@
 #include <GxEPD2_7C.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
+static_assert(AUTO_SYNC_HOURS>=1 && AUTO_SYNC_HOURS<=168,"AUTO_SYNC_HOURS must be 1..168");
 
 #define EPD_SCK_PIN 7
 #define EPD_MOSI_PIN 9
@@ -46,9 +52,12 @@ struct CalendarFeed {
 };
 
 static constexpr uint8_t HOLIDAY_FEED_INDEX=4;
-static const char* KOREA_HOLIDAY_ICS=
-  "https://calendar.google.com/calendar/ical/"
-  "ko.south_korea.official%23holiday%40group.v.calendar.google.com/public/basic.ics";
+#ifndef HOLIDAY_ICS_URL
+#define HOLIDAY_ICS_URL \
+  "https://calendar.google.com/calendar/ical/" \
+  "ko.south_korea.official%23holiday%40group.v.calendar.google.com/public/basic.ics"
+#endif
+static const char* KOREA_HOLIDAY_ICS=HOLIDAY_ICS_URL;
 
 CalendarFeed feeds[] = {
   {CALENDAR_1_NAME,CALENDAR_1_URL,C_BLUE},
@@ -67,7 +76,7 @@ struct CalendarEvent {
   uint8_t calendarIndex=0;
 };
 
-static constexpr int MAX_EVENTS=160;
+static constexpr int MAX_EVENTS=512;
 CalendarEvent events[MAX_EVENTS];
 int eventCount=0;
 
@@ -77,42 +86,7 @@ String normalizeIcsUrl(String url){
   return url;
 }
 
-String icsUnescape(String s){
-  s.replace("\\n"," ");
-  s.replace("\\N"," ");
-  s.replace("\\,",",");
-  s.replace("\\;",";");
-  s.replace("\\\\","\\");
-  return s;
-}
-
-time_t parseIcsDateTime(const String& value,bool* isAllDay){
-  String v=value;
-  v.trim();
-  *isAllDay=(v.length()==8);
-  if(v.length()<8) return 0;
-
-  struct tm t={};
-  t.tm_year=v.substring(0,4).toInt()-1900;
-  t.tm_mon=v.substring(4,6).toInt()-1;
-  t.tm_mday=v.substring(6,8).toInt();
-  t.tm_isdst=-1;
-
-  if(v.length()>=15 && v.charAt(8)=='T'){
-    t.tm_hour=v.substring(9,11).toInt();
-    t.tm_min=v.substring(11,13).toInt();
-    t.tm_sec=v.substring(13,15).toInt();
-  }
-  if(v.endsWith("Z")){
-    setenv("TZ","UTC0",1);
-    tzset();
-    time_t utc=mktime(&t);
-    setenv("TZ",TZ_INFO,1);
-    tzset();
-    return utc;
-  }
-  return mktime(&t);
-}
+#include "firmware_datetime.inc"
 
 bool lineStartsWithProperty(const String& line,const char* prop){
   int colon=line.indexOf(':');
@@ -129,6 +103,7 @@ String propertyValue(const String& line){
 }
 
 bool connectWiFi(uint32_t timeoutMs=18000){
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
   uint32_t start=millis();
@@ -136,24 +111,34 @@ bool connectWiFi(uint32_t timeoutMs=18000){
   return WiFi.status()==WL_CONNECTED;
 }
 
+static volatile bool clockUpdated=false;
+void onClockSync(struct timeval*){clockUpdated=true;}
 bool syncClock(){
+  clockUpdated=false;
+  sntp_set_time_sync_notification_cb(onClockSync);
   configTzTime(TZ_INFO,"pool.ntp.org","time.google.com","time.cloudflare.com");
-  struct tm now={};
-  for(int i=0;i<30;i++){
-    if(getLocalTime(&now,500)) return true;
-    delay(250);
-  }
-  return false;
+  uint32_t started=millis();
+  while(!clockUpdated && millis()-started<15000) delay(100);
+  bool retained=(esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_TIMER ||
+                 esp_sleep_get_wakeup_cause()==ESP_SLEEP_WAKEUP_EXT1) && time(nullptr)>1704067200;
+  Serial.println(clockUpdated?"Clock: fresh NTP":(retained?"Clock: NTP timeout, using retained RTC":"Clock: unavailable"));
+  return clockUpdated || retained;
 }
 
 bool configurationLooksValid(){
   String ssid=WIFI_SSID;
-  String cal1=CALENDAR_1_URL;
+  bool hasCalendar=false;
+  for(uint8_t i=0;i<HOLIDAY_FEED_INDEX;++i){
+    String url=normalizeIcsUrl(feeds[i].url);
+    if(url.isEmpty()) continue;
+    if(!url.startsWith("https://") || url.indexOf("EXAMPLE")>=0) return false;
+    hasCalendar=true;
+  }
   ssid.trim();
-  cal1.trim();
+
 
   if(ssid.isEmpty() || ssid=="YOUR_WIFI_NAME") return false;
-  if(cal1.isEmpty() || cal1.indexOf("EXAMPLE")>=0) return false;
+  if(!hasCalendar) return false;
   return true;
 }
 

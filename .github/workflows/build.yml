@@ -1,12 +1,12 @@
-name: Build firmware v0.1
-
+name: Firmware and regression checks
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   platformio:
     runs-on: ubuntu-latest
@@ -14,10 +14,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Install PlatformIO
-        run: pip install platformio
-      - name: Create CI config
+        run: pip install platformio==6.2.0
+      - name: Create placeholder config (never use real secrets in CI)
         run: cp src/config.example.h src/config.h
       - name: Build
         run: pio run
+      - name: Parser, recurrence and actual firmware pixel regression
+        run: python -m unittest discover -s tests -v
+      - name: Python syntax
+        run: python -m py_compile tools/*.py
+      - name: Ensure private config is not tracked
+        run: test -z "$(git ls-files src/config.h)"

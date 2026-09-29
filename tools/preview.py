@@ -27,7 +27,7 @@ def cpp_string(name: str, text: str, default: str = "") -> str:
     if not m:
         return default
     value = m.group(1)
-    return bytes(value, "utf-8").decode("unicode_escape") if "\\u" in value else value.replace(r"\"", '"').replace(r"\\", "\\")
+    return json.loads('"'+value+'"')
 
 
 def load_config():
@@ -69,7 +69,8 @@ def fetch_ics(url: str) -> str:
         },
     )
     with urllib.request.urlopen(req, timeout=20) as resp:
-        data = resp.read()
+        data = resp.read(768*1024+1)
+        if len(data)>768*1024: raise ValueError("ICS 768KiB 초과")
     return data.decode("utf-8", errors="replace")
 
 
@@ -95,186 +96,112 @@ def unescape_ics(value: str) -> str:
 
 
 def parse_ics_dt(prop: str, value: str):
-    params = prop.split(";")[1:]
-    all_day = any(p.upper() == "VALUE=DATE" for p in params) or (len(value) == 8 and "T" not in value)
-
-    if all_day:
-        dt = datetime.strptime(value[:8], "%Y%m%d").replace(tzinfo=KST)
-        return dt, True
-
-    v = value.strip()
-    if v.endswith("Z"):
-        dt = datetime.strptime(v, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).astimezone(KST)
-    else:
-        fmt = "%Y%m%dT%H%M%S" if len(v) >= 15 else "%Y%m%dT%H%M"
-        dt = datetime.strptime(v[:15] if fmt.endswith("%S") else v[:13], fmt).replace(tzinfo=KST)
-    return dt, False
+    zone = re.search(r'TZID="?([^;"\s]+)', prop)
+    if zone and zone[1] not in {"Asia/Seoul", "Asia/Tokyo", "UTC", "Etc/UTC", "GMT"}:
+        raise ValueError("지원하지 않는 TZID")
+    tz = timezone.utc if value.endswith("Z") or (zone and zone[1] in {"UTC", "Etc/UTC", "GMT"}) else KST
+    all_day = len(value) == 8
+    fmt = "%Y%m%d" if all_day else "%Y%m%dT%H%M%S"
+    dt = datetime.strptime(value.removesuffix("Z"), fmt).replace(tzinfo=tz)
+    return dt, all_day
 
 
-def parse_until(value: str):
-    try:
-        if value.endswith("Z"):
-            return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).astimezone(KST)
-        if "T" in value:
-            return datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=KST)
-        return datetime.strptime(value[:8], "%Y%m%d").replace(tzinfo=KST)
-    except Exception:
-        return None
-
-
-def parse_rule(rule: str) -> dict:
-    parts = {}
-    for item in rule.split(";"):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            parts[k.upper()] = v
-    return parts
-
-
-def add_months(dt: datetime, months: int) -> datetime:
-    y = dt.year + (dt.month - 1 + months) // 12
-    m = (dt.month - 1 + months) % 12 + 1
-    d = min(dt.day, calendar.monthrange(y, m)[1])
-    return dt.replace(year=y, month=m, day=d)
-
-
-def add_years(dt: datetime, years: int) -> datetime:
-    y = dt.year + years
-    d = min(dt.day, calendar.monthrange(y, dt.month)[1])
-    return dt.replace(year=y, day=d)
-
-
-DAYMAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
-
-
-def expand_event(base: dict, month_start: datetime, month_end: datetime):
-    start = base["start"]
-    end = base["end"]
-    duration = max(end - start, timedelta(seconds=1))
-    rule = base.get("rrule")
-    exclusions = base.get("exdates", set())
-
-    def emit(s):
-        key = s.strftime("%Y%m%d")
-        key2 = s.strftime("%Y%m%dT%H%M%S")
-        if key in exclusions or key2 in exclusions:
-            return None
-        e = s + duration
-        if s < month_end and e > month_start:
-            item = dict(base)
-            item["start"] = s
-            item["end"] = e
-            return item
-        return None
-
-    if not rule:
-        one = emit(start)
-        return [one] if one else []
-
-    r = parse_rule(rule)
-    freq = r.get("FREQ", "").upper()
-    interval = max(int(r.get("INTERVAL", "1") or "1"), 1)
-    count_limit = int(r["COUNT"]) if r.get("COUNT", "").isdigit() else None
-    until = parse_until(r["UNTIL"]) if r.get("UNTIL") else None
-    out = []
-    generated = 0
-
-    def allowed(s):
-        return (until is None or s <= until) and (count_limit is None or generated < count_limit)
-
-    if freq == "WEEKLY" and r.get("BYDAY"):
-        wanted = [DAYMAP[d] for d in r["BYDAY"].split(",") if d in DAYMAP]
-        week0 = start - timedelta(days=start.weekday())
-        wk = 0
-        while wk < 600:
-            base_week = week0 + timedelta(weeks=wk * interval)
-            if base_week >= month_end and base_week > start:
-                break
-            for wd in wanted:
-                s = base_week + timedelta(days=wd)
-                s = s.replace(hour=start.hour, minute=start.minute, second=start.second, microsecond=0)
-                if s < start:
-                    continue
-                if not allowed(s):
-                    return out
-                generated += 1
-                item = emit(s)
-                if item:
-                    out.append(item)
-            wk += 1
-        return out
-
-    cur = start
-    guard = 0
-    while guard < 5000 and allowed(cur):
-        generated += 1
-        item = emit(cur)
-        if item:
-            out.append(item)
-
-        if freq == "DAILY":
-            cur += timedelta(days=interval)
-        elif freq == "WEEKLY":
-            cur += timedelta(weeks=interval)
-        elif freq == "MONTHLY":
-            cur = add_months(cur, interval)
-        elif freq == "YEARLY":
-            cur = add_years(cur, interval)
-        else:
-            break
-
-        if cur >= month_end and cur > start and freq in {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}:
-            if freq in {"DAILY", "WEEKLY"}:
-                break
-            if cur > month_end + timedelta(days=370):
-                break
-        guard += 1
-
+def expand_event(base, month_start, month_end):
+    start, end = base["start"], base["end"]
+    duration = max(end-start, timedelta(seconds=1))
+    rule = dict(item.split("=",1) for item in base.get("rrule", "").split(";") if item)
+    allowed = {"FREQ","INTERVAL","COUNT","UNTIL","BYDAY","BYMONTHDAY","BYMONTH","WKST"}
+    if set(rule)-allowed:
+        raise ValueError("지원하지 않는 RRULE 속성")
+    freq=rule.get("FREQ")
+    if freq and freq not in {"DAILY","WEEKLY","MONTHLY","YEARLY"}:
+        raise ValueError("지원하지 않는 반복 주기")
+    interval=max(1,int(rule.get("INTERVAL",1)))
+    count=int(rule.get("COUNT",0))
+    until=parse_ics_dt("",rule["UNTIL"])[0] if "UNTIL" in rule else None
+    if until and len(rule["UNTIL"])==8: until+=timedelta(seconds=86399)
+    weekdays={"SU":6,"MO":0,"TU":1,"WE":2,"TH":3,"FR":4,"SA":5}
+    wkst=weekdays[rule.get("WKST","MO")]
+    byday=rule.get("BYDAY","").split(",") if rule.get("BYDAY") else []
+    for token in byday:
+        if not re.fullmatch(r"[+-]?[0-9]*(MO|TU|WE|TH|FR|SA|SU)",token):raise ValueError("BYDAY 형식 오류")
+        if len(token)>2 and (freq in {"DAILY","WEEKLY"} or (freq=="YEARLY" and "BYMONTH" not in rule)):
+            raise ValueError("지원하지 않는 순서 지정 BYDAY")
+    def number_matches(key, value, maximum):
+        return key not in rule or value in [int(n) if int(n)>0 else maximum+int(n)+1 for n in rule[key].split(",")]
+    out=[];generated=0
+    initial=max(0,int((month_start-start-duration).total_seconds()//86400)-1) if not count and freq else 0
+    for offset in range(initial,80000):
+        cur=start+timedelta(days=offset)
+        if cur>=month_end or (until and cur>until):break
+        mdiff=(cur.year-start.year)*12+cur.month-start.month
+        dim=calendar.monthrange(cur.year,cur.month)[1]
+        match=not freq and offset==0
+        if freq=="DAILY":match=offset%interval==0
+        if freq=="WEEKLY":match=((offset+(start.weekday()-wkst)%7)//7)%interval==0 and (byday or cur.weekday()==start.weekday())
+        if freq=="MONTHLY":match=mdiff%interval==0 and (byday or "BYMONTHDAY" in rule or cur.day==start.day)
+        if freq=="YEARLY":match=(cur.year-start.year)%interval==0 and ("BYMONTH" in rule or byday or "BYMONTHDAY" in rule or cur.month==start.month) and (byday or "BYMONTHDAY" in rule or cur.day==start.day)
+        def day_matches(token):
+            ordinal=int(token[:-2]) if len(token)>2 else 0
+            return cur.weekday()==weekdays[token[-2:]] and (not ordinal or ordinal==(cur.day-1)//7+1 or ordinal==-((dim-cur.day)//7+1))
+        match=match and number_matches("BYMONTH",cur.month,12) and number_matches("BYMONTHDAY",cur.day,dim) and (not byday or any(day_matches(t) for t in byday))
+        if offset==0:match=True
+        if match:
+            generated+=1
+            if count and generated>count:break
+            if cur not in base.get("exdates",set()) and cur+duration>month_start:
+                out.append(dict(base,start=cur.astimezone(KST),end=(cur+duration).astimezone(KST)))
+        if not freq:break
     return out
 
 
-def parse_ics(text: str, cal_name: str, color: str, month_start: datetime, month_end: datetime, holiday: bool = False):
-    lines = unfold_ics(text)
-    events = []
-    current = None
-
+def parse_ics(text, cal_name, color, month_start, month_end, holiday=False):
+    lines=unfold_ics(text.lstrip("\ufeff"))
+    if "BEGIN:VCALENDAR" not in lines or "END:VCALENDAR" not in lines:
+        raise ValueError("완전한 VCALENDAR가 아닙니다")
+    records=[];current=None;nested=0
     for line in lines:
-        if line == "BEGIN:VEVENT":
-            current = {"summary": "(제목 없음)", "calendar": cal_name, "color": color, "exdates": set(), "holiday": holiday}
-            continue
-        if line == "END:VEVENT":
-            if current and current.get("start"):
-                if "end" not in current:
-                    current["end"] = current["start"] + (timedelta(days=1) if current.get("allDay") else timedelta(hours=1))
-                events.extend(expand_event(current, month_start, month_end))
-            current = None
-            continue
-        if current is None or ":" not in line:
-            continue
-
-        prop, value = line.split(":", 1)
-        key = prop.split(";", 1)[0].upper()
-
-        try:
-            if key == "DTSTART":
-                current["start"], current["allDay"] = parse_ics_dt(prop, value)
-            elif key == "DTEND":
-                current["end"], _ = parse_ics_dt(prop, value)
-            elif key == "SUMMARY":
-                current["summary"] = unescape_ics(value)
-            elif key == "RRULE":
-                current["rrule"] = value
-            elif key == "EXDATE":
-                for v in value.split(","):
-                    v = v.strip()
-                    if v:
-                        current["exdates"].add(v.rstrip("Z"))
-            elif key == "STATUS" and value.upper() == "CANCELLED":
-                current["cancelled"] = True
-        except Exception:
-            pass
-
-    return [e for e in events if not e.get("cancelled")]
+        if len(line.encode("utf8"))>4096:raise ValueError("ICS 행이 너무 깁니다")
+        if line=="BEGIN:VEVENT":
+            current={"summary":"(제목없음)","calendar":cal_name,"color":color,"holiday":holiday,"exdates":set()};nested=0;continue
+        if line=="END:VEVENT":
+            if current is None or not current.get("uid"):raise ValueError("VEVENT UID 누락")
+            records.append(current);current=None;continue
+        if current is None:continue
+        if line.startswith("BEGIN:"):nested+=1;continue
+        if line.startswith("END:"):nested-=1;continue
+        if nested or ":" not in line:continue
+        prop,value=line.split(":",1);key=prop.split(";",1)[0]
+        if key=="DTSTART":current["start"],current["allDay"]=parse_ics_dt(prop,value)
+        elif key=="DTEND":current["end"],_=parse_ics_dt(prop,value)
+        elif key=="UID":current["uid"]=value
+        elif key=="SUMMARY":current["summary"]=unescape_ics(value).replace("\n"," ")
+        elif key=="RRULE":current["rrule"]=value
+        elif key=="STATUS":current["cancelled"]=value=="CANCELLED"
+        elif key=="EXDATE":current["exdates"].update(parse_ics_dt(prop,v)[0] for v in value.split(","))
+        elif key=="RECURRENCE-ID":
+            if "RANGE=" in prop:raise ValueError("RANGE 예외 미지원")
+            current["recurrence"],_=parse_ics_dt(prop,value)
+        elif key in {"RDATE","EXRULE","DURATION"}:raise ValueError(f"{key} 미지원")
+    if current:raise ValueError("잘린 VEVENT")
+    overrides={}
+    for r in records:
+        if "recurrence" in r:
+            key=(r["uid"],r["recurrence"])
+            if key in overrides:raise ValueError("중복 수정 일정")
+            overrides[key]=r
+    if len(overrides)>128:raise ValueError("수정 예외 128개 초과")
+    out=[]
+    for r in records:
+        if r.get("cancelled"):continue
+        if "start" not in r:raise ValueError("DTSTART 누락")
+        r.setdefault("end",r["start"]+(timedelta(days=1) if r["allDay"] else timedelta(seconds=1)))
+        if r["end"]<r["start"]:raise ValueError("잘못된 DTEND")
+        if "recurrence" in r:r.pop("rrule",None)
+        else:r["exdates"].update(date for uid,date in overrides if uid==r["uid"])
+        out.extend(expand_event(r,month_start,month_end))
+    if len(out)>512:raise ValueError("표시 범위 일정 512개 초과")
+    return out
 
 
 def event_days(event, window_start, window_end):
@@ -306,14 +233,14 @@ def build_payload():
 
     all_events = []
     errors = []
-    for feed in cfg["feeds"]:
+    for feed_index,feed in enumerate(cfg["feeds"]):
         try:
             ics = fetch_ics(feed["url"])
-            all_events.extend(parse_ics(
-                ics, feed["name"], feed["color"], window_start, window_end, feed.get("holiday", False)
-            ))
+            parsed=parse_ics(ics,feed["name"],feed["color"],window_start,window_end,feed.get("holiday",False))
+            for e in parsed: e["calendarIndex"]=feed_index
+            all_events.extend(parsed)
         except Exception as exc:
-            errors.append(f'{feed["name"]}: {exc}')
+            errors.append(f'{feed["name"]}: 다운로드/파싱 실패 ({type(exc).__name__})')
 
     by_day = {}
     holidays = {}
@@ -324,7 +251,7 @@ def build_payload():
         holidays[key] = []
         d += timedelta(days=1)
 
-    for e in sorted(all_events, key=lambda x: x["start"]):
+    for e in sorted(all_events, key=lambda x: (x["start"],not x["allDay"],x["calendarIndex"],x["summary"])):
         for key in event_days(e, window_start, window_end):
             if e.get("holiday"):
                 holidays[key].append(e["summary"])
@@ -353,97 +280,17 @@ def build_payload():
 
 
 def html_page(payload):
-    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    return f"""<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>E1002 실제 캘린더 미리보기</title>
-<style>
-:root{{--black:#111;--white:#fff;--red:#d92828;--blue:#2455d6;--green:#3f8f45;--line:#222;--bg:#ececec}}
-*{{box-sizing:border-box}}
-body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#111}}
-.top{{width:800px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px}}
-.screen{{width:800px;height:480px;margin:auto;background:white;box-shadow:0 3px 16px rgba(0,0,0,.18);position:relative;overflow:hidden}}
-.title{{position:absolute;left:18px;top:6px;font:700 25px/1 Arial,sans-serif}}
-.memo{{position:absolute;left:180px;top:7px;width:565px;font-size:16px;line-height:24px;white-space:nowrap;overflow:hidden}}
-.status{{position:absolute;right:25px;top:15px;width:10px;height:10px;border-radius:50%;background:var(--green)}}
-.status.bad{{background:var(--red)}}
-.weekdays{{position:absolute;left:16px;top:48px;width:768px;height:20px;display:grid;grid-template-columns:repeat(7,1fr);align-items:center;text-align:center;font-size:14px}}
-.weekdays div:first-child{{color:var(--red)}} .weekdays div:last-child{{color:var(--blue)}}
-.grid{{position:absolute;left:16px;top:68px;width:768px;height:408px;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(6,68px);border-left:1px solid var(--line);border-top:1px solid var(--line)}}
-.cell{{position:relative;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 4px;overflow:hidden;background:#fff}}
-.cell.today:after{{content:"";position:absolute;inset:2px;border:2px solid var(--red);pointer-events:none}}
-.dayline{{height:17px;display:flex;align-items:baseline;gap:5px;min-width:0}}
-.day{{font:700 14px/16px Arial,sans-serif;flex:0 0 auto}}
-.sun .day,.holiday-day .day{{color:var(--red)}} .sat .day{{color:var(--blue)}}
-.holiday{{color:var(--red);font-size:9px;line-height:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
-.events{{height:50px;overflow:hidden}}
-.event{{line-height:12px;font-size:10px;position:relative;overflow:hidden;white-space:normal}}
-.more{{position:absolute;left:14px;bottom:2px;font:10px/11px Arial,sans-serif}}
-.msg{{width:800px;margin:10px auto 0;font-size:12px;color:#555}} .err{{color:#a51616}}
-</style>
-</head>
-<body>
-<div class="top"><b>실제 iCloud 일정 미리보기</b><span>브라우저 새로고침 = iCloud 다시 불러오기</span></div>
-<div class="screen">
-  <div class="title" id="title"></div><div class="memo" id="memo"></div>
-  <div class="status" id="status"></div>
-  <div class="weekdays"><div>SUN</div><div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div>SAT</div></div>
-  <div class="grid" id="grid"></div>
-</div>
-<div class="msg" id="msg"></div>
-<script>
-const p={data};
-const start=new Date(p.start+"T00:00:00");
-const end=new Date(p.end+"T00:00:00");
-const mmdd=d=>String(d.getMonth()+1).padStart(2,"0")+"."+String(d.getDate()).padStart(2,"0");
-document.getElementById("title").textContent=mmdd(start)+" - "+mmdd(end);
-document.getElementById("memo").textContent=p.memo;
-if(p.errors.length) document.getElementById("status").classList.add("bad");
-document.getElementById("msg").innerHTML=p.errors.length
- ? '<span class="err">일부 캘린더 불러오기 실패: '+p.errors.map(x=>x.replace(/[<>&]/g,"")).join(" / ")+'</span>'
- : '이전 2주 + 현재 주 + 이후 3주를 표시합니다. 대한민국 공휴일은 자동으로 추가되며 날짜 옆에 표시됩니다.';
-const grid=document.getElementById("grid");
-for(let slot=0;slot<42;slot++){{
-  const cell=document.createElement("div"), col=slot%7;
-  cell.className="cell "+(col===0?"sun ":"")+(col===6?"sat ":"");
-  const d=new Date(start); d.setDate(start.getDate()+slot);
-  const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-  if(key===p.today) cell.classList.add("today");
-
-  const hs=p.holidays[key]||[];
-  if(hs.length) cell.classList.add("holiday-day");
-
-  const line=document.createElement("div"); line.className="dayline";
-  const dn=document.createElement("div"); dn.className="day";
-  dn.textContent=(d.getDate()===1||slot===0)?(d.getMonth()+1)+"/"+d.getDate():d.getDate();
-  line.appendChild(dn);
-  if(hs.length){{
-    const h=document.createElement("div"); h.className="holiday"; h.textContent=hs.join("·"); h.title=hs.join(" / "); line.appendChild(h);
-  }}
-  cell.appendChild(line);
-
-  const es=p.days[key]||[];
-  const box=document.createElement("div"); box.className="events";
-  const visible=Math.min(es.length,3);
-  const perEventLines=es.length===1?3:(es.length===2?2:1);
-  let shown=0;
-  for(let i=0;i<visible;i++){{
-    const e=es[i];
-    const compact=e.text.replace(/\s+/g,"");
-    const r=document.createElement("div"); r.className="event"; r.textContent=compact; r.title=e.calendar+" · "+e.text;
-    r.style.display="-webkit-box"; r.style.webkitBoxOrient="vertical"; r.style.webkitLineClamp=String(perEventLines);
-    r.style.maxHeight=(perEventLines*12)+"px";
-    box.appendChild(r); shown++;
-  }}
-  cell.appendChild(box);
-  if(es.length>shown){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-shown);cell.appendChild(more);}}
-  grid.appendChild(cell);
-}}
-</script>
-</body></html>"""
+    data=json.dumps(payload,ensure_ascii=False).replace("</","<\\/")
+    fonts=(ROOT/"tools/font_atlas.json").read_text(encoding="utf8")
+    layout=dict((name,int(value)) for name,value in re.findall(r"int (UI_\w+)=(\d+);",(ROOT/"src/ui_layout.h").read_text()))
+    script=(ROOT/"tools/preview_canvas.js").read_text(encoding="utf8")
+    return f'''<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>E1002 펌웨어 비트맵 미리보기</title>
+<style>body{{background:#eee;font:14px sans-serif;padding:24px}} main{{width:800px;margin:auto}}canvas{{background:white;box-shadow:0 2px 12px #bbb;image-rendering:pixelated}}p{{color:#555}}</style>
+<main><p>800 × 480 · 이전 2주 + 현재 주 + 이후 3주 · 새로고침으로 다시 동기화</p>
+<canvas width="800" height="480"></canvas><p id="message"></p></main>
+<script>const p={data},fonts={fonts},layout={json.dumps(layout)};
+{script}</script></html>'''
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -458,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as exc:
-            body = f"<meta charset='utf-8'><h2>미리보기 오류</h2><pre>{str(exc)}</pre>".encode("utf-8")
+            body = "<meta charset='utf-8'><h2>미리보기 오류: 설정 및 네트워크를 확인하세요.</h2>".encode("utf-8")
             self.send_response(500)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -499,4 +346,4 @@ if __name__ == "__main__":
     except Exception as exc:
         print()
         print("오류:", exc)
-        input("엔터를 누르면 종료합니다...")
+        raise SystemExit(1)
