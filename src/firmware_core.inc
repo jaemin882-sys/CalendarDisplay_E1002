@@ -4,7 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <SPI.h>
-#include <Preferences.h>
+#include <Preferences.h>\n#include "esp_sleep.h"\n#include "driver/rtc_io.h"
 #include <GxEPD2_7C.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
@@ -15,7 +15,7 @@
 #define EPD_DC_PIN 11
 #define EPD_RES_PIN 12
 #define EPD_BUSY_PIN 13
-#define SYNC_BUTTON_PIN 4
+#define SYNC_BUTTON_PIN 3  // E1002 KEY0: right-side green wake button
 
 SPIClass hspi(HSPI);
 
