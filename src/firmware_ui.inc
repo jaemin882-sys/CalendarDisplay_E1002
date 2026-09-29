@@ -93,6 +93,65 @@ int takeTextLine(const String& input,int startByte,int maxPixels,String& out){
   return i;
 }
 
+static constexpr int EVENT_TRACKING=-2;
+
+int eventGlyphAdvance(const char* utf8,const uint8_t* font){
+  return max(1,glyphWidthFor(utf8,font)+EVENT_TRACKING);
+}
+
+int takeEventTextLine(const String& input,int startByte,int maxPixels,String& out){
+  out="";
+  int used=0;
+  int i=startByte;
+  while(i<input.length()){
+    char buf[8]={0};const uint8_t* font=nullptr;
+    int len=readGlyph(input,i,buf,font);
+    int advance=eventGlyphAdvance(buf,font);
+    if(used+advance>maxPixels) break;
+    out+=String(buf);
+    used+=advance;
+    i+=len;
+  }
+  return i;
+}
+
+String fitEventText(const String& input,int maxPixels){
+  String complete;
+  if(takeEventTextLine(input,0,maxPixels,complete)==(int)input.length()) return complete;
+  String out;
+  int used=0;
+  int i=0;
+  const int dotsWidth=18;
+  while(i<input.length()){
+    char buf[8]={0};const uint8_t* font=nullptr;
+    int len=readGlyph(input,i,buf,font);
+    int advance=eventGlyphAdvance(buf,font);
+    if(used+advance>maxPixels-dotsWidth){out+="...";break;}
+    out+=String(buf);
+    used+=advance;
+    i+=len;
+  }
+  return out;
+}
+
+int drawEventText(int x,int baselineY,const String& text,uint16_t color,int maxWidth){
+  u8g2.setForegroundColor(color);
+  int cursor=x;
+  int i=0;
+  while(i<text.length()){
+    char buf[8]={0};const uint8_t* font=nullptr;
+    int len=readGlyph(text,i,buf,font);
+    int advance=eventGlyphAdvance(buf,font);
+    if(cursor+advance>x+maxWidth) break;
+    selectFont(font);
+    u8g2.setCursor(cursor,baselineY);
+    u8g2.print(buf);
+    cursor+=advance;
+    i+=len;
+  }
+  return cursor-x;
+}
+
 bool eventOccursOnDay(const CalendarEvent& e,time_t dayStart){
   time_t nextDay=dayStart+86400;
   time_t end=e.end>e.start?e.end:e.start+1;
@@ -274,9 +333,9 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
         for(int part=0;part<perEventLines && pos<(int)label.length();++part){
           int width=CELL_W-10-((line==2)?moreWidth:0);
           String piece;
-          int next=takeTextLine(label,pos,width,piece);
-          if(next<(int)label.length() && part==perEventLines-1) piece=fitText(label.substring(pos),width);
-          drawUtf8Korean(x+5,y+UI_EVENT_BASELINE+line*EVENT_STEP,piece,C_BLACK,width);
+          int next=takeEventTextLine(label,pos,width,piece);
+          if(next<(int)label.length() && part==perEventLines-1) piece=fitEventText(label.substring(pos),width);
+          drawEventText(x+5,y+UI_EVENT_BASELINE+line*EVENT_STEP,piece,C_BLACK,width);
           ++line;
           if(next<=pos) break;
           pos=next;
