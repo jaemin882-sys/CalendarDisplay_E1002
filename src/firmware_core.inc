@@ -129,3 +129,28 @@ bool syncClock(){
   }
   return false;
 }
+
+bool configurationLooksValid(){
+  String ssid=WIFI_SSID;
+  String cal1=CALENDAR_1_URL;
+  ssid.trim();
+  cal1.trim();
+
+  if(ssid.isEmpty() || ssid=="YOUR_WIFI_NAME") return false;
+  if(cal1.isEmpty() || cal1.indexOf("EXAMPLE")>=0) return false;
+  return true;
+}
+
+void currentMonthWindow(time_t& monthStart,time_t& nextMonth){
+  struct tm now={};
+  getLocalTime(&now,100);
+  now.tm_mday=1;
+  now.tm_hour=0;
+  now.tm_min=0;
+  now.tm_sec=0;
+  now.tm_isdst=-1;
+  monthStart=mktime(&now);
+
+  now.tm_mon+=1;
+  nextMonth=mktime(&now);
+}
