@@ -266,7 +266,7 @@ def parse_ics(text: str, cal_name: str, color: str, month_start: datetime, month
     return [e for e in events if not e.get("cancelled")]
 
 
-def event_days(event, y, m):
+def event_days(event, window_start, window_end):
     start = event["start"]
     end = event["end"]
     if event.get("allDay"):
@@ -274,49 +274,57 @@ def event_days(event, y, m):
     else:
         end = max(end - timedelta(seconds=1), start)
 
-    first = max(start.date(), datetime(y, m, 1, tzinfo=KST).date())
-    last_day = calendar.monthrange(y, m)[1]
-    last = min(end.date(), datetime(y, m, last_day, tzinfo=KST).date())
+    first = max(start.date(), window_start.date())
+    last = min(end.date(), (window_end - timedelta(seconds=1)).date())
     d = first
     while d <= last:
-        yield d.day
+        yield d.isoformat()
         d += timedelta(days=1)
 
 
 def build_payload():
     cfg = load_config()
     now = datetime.now(KST)
-    y, m = now.year, now.month
-    month_start = datetime(y, m, 1, tzinfo=KST)
-    next_y, next_m = (y + 1, 1) if m == 12 else (y, m + 1)
-    month_end = datetime(next_y, next_m, 1, tzinfo=KST)
+
+    # Sunday-based 6-week rolling view:
+    # previous 2 full weeks + current week + next 3 full weeks.
+    days_since_sunday = (now.weekday() + 1) % 7
+    this_sunday = datetime(now.year, now.month, now.day, tzinfo=KST) - timedelta(days=days_since_sunday)
+    window_start = this_sunday - timedelta(weeks=2)
+    window_end = window_start + timedelta(weeks=6)
 
     all_events = []
     errors = []
     for feed in cfg["feeds"]:
         try:
             ics = fetch_ics(feed["url"])
-            all_events.extend(parse_ics(ics, feed["name"], feed["color"], month_start, month_end))
+            all_events.extend(parse_ics(ics, feed["name"], feed["color"], window_start, window_end))
         except Exception as exc:
             errors.append(f'{feed["name"]}: {exc}')
 
-    by_day = {str(i): [] for i in range(1, calendar.monthrange(y, m)[1] + 1)}
+    by_day = {}
+    d = window_start
+    while d < window_end:
+        by_day[d.date().isoformat()] = []
+        d += timedelta(days=1)
+
     for e in sorted(all_events, key=lambda x: x["start"]):
-        for day in event_days(e, y, m):
+        for key in event_days(e, window_start, window_end):
             if e.get("allDay"):
                 label = e["summary"]
             else:
                 label = e["start"].strftime("%H:%M ") + e["summary"]
-            by_day[str(day)].append({
+            by_day[key].append({
                 "text": label,
                 "color": e["color"],
                 "calendar": e["calendar"],
             })
 
+    last_day = window_end - timedelta(days=1)
     return {
-        "year": y,
-        "month": m,
-        "today": now.day,
+        "start": window_start.date().isoformat(),
+        "end": last_day.date().isoformat(),
+        "today": now.date().isoformat(),
         "memo": cfg["memo"],
         "days": by_day,
         "errors": errors,
@@ -364,27 +372,30 @@ body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Mal
 <div class="msg" id="msg"></div>
 <script>
 const p={data};
-document.getElementById("title").textContent=p.year+"."+String(p.month).padStart(2,"0");
+const start=new Date(p.start+"T00:00:00");
+const end=new Date(p.end+"T00:00:00");
+const mmdd=d=>String(d.getMonth()+1).padStart(2,"0")+"."+String(d.getDate()).padStart(2,"0");
+document.getElementById("title").textContent=mmdd(start)+" - "+mmdd(end);
 document.getElementById("memo").textContent=p.memo;
 if(p.errors.length) document.getElementById("status").classList.add("bad");
 document.getElementById("msg").innerHTML=p.errors.length
  ? '<span class="err">일부 캘린더 불러오기 실패: '+p.errors.map(x=>x.replace(/[<>&]/g,"")).join(" / ")+'</span>'
- : '현재 PC의 src/config.h에 저장된 공개 iCloud 주소를 사용했습니다. 주소/비밀번호는 GitHub에 업로드되지 않습니다.';
+ : '현재 주 기준 이전 2주 + 현재 주 + 이후 3주를 표시합니다. 공개 iCloud 주소는 PC의 src/config.h에서만 읽습니다.';
 const grid=document.getElementById("grid");
-const first=new Date(p.year,p.month-1,1).getDay();
-const dim=new Date(p.year,p.month,0).getDate();
 for(let slot=0;slot<42;slot++){{
-  const cell=document.createElement("div"), col=slot%7, day=slot-first+1;
+  const cell=document.createElement("div"), col=slot%7;
   cell.className="cell "+(col===0?"sun ":"")+(col===6?"sat ":"");
-  if(day>=1&&day<=dim){{
-    if(day===p.today) cell.classList.add("today");
-    const dn=document.createElement("div"); dn.className="day"; dn.textContent=day; cell.appendChild(dn);
-    const es=p.days[String(day)]||[];
-    es.slice(0,3).forEach(e=>{{
-      const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text; cell.appendChild(r);
-    }});
-    if(es.length>3){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-3);cell.appendChild(more);}}
-  }}
+  const d=new Date(start); d.setDate(start.getDate()+slot);
+  const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  if(key===p.today) cell.classList.add("today");
+  const dn=document.createElement("div"); dn.className="day";
+  dn.textContent=(d.getDate()===1||slot===0)?(d.getMonth()+1)+"/"+d.getDate():d.getDate();
+  cell.appendChild(dn);
+  const es=p.days[key]||[];
+  es.slice(0,3).forEach(e=>{{
+    const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text; cell.appendChild(r);
+  }});
+  if(es.length>3){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-3);cell.appendChild(more);}}
   grid.appendChild(cell);
 }}
 </script>
