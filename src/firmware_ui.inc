@@ -78,6 +78,24 @@ String formatEventLabel(const CalendarEvent& e){
   return String(timebuf)+" "+e.summary;
 }
 
+String holidayNameForDay(time_t dayStart){
+  String name="";
+  for(int i=0;i<eventCount;++i){
+    if(events[i].calendarIndex!=HOLIDAY_FEED_INDEX) continue;
+    if(!eventOccursOnDay(events[i],dayStart)) continue;
+    if(name.length()) name+="·";
+    name+=events[i].summary;
+  }
+  return name;
+}
+
+int eventLineCount(const CalendarEvent& e,int maxPixels){
+  String label=formatEventLabel(e);
+  String first;
+  int next=takeTextLine(label,0,maxPixels,first);
+  return next<label.length()?2:1;
+}
+
 uint32_t computeRenderHash(time_t windowStart){
   uint32_t h=2166136261u;
   auto feedBytes=[&](const String& s){
@@ -168,27 +186,74 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
       }
 
       uint16_t dayColor=col==0?C_RED:(col==6?C_BLUE:C_BLACK);
+      String holiday=holidayNameForDay(cellStart);
+      if(holiday.length()) dayColor=C_RED;
+
       u8g2.setFont(u8g2_font_helvB10_tf);
       u8g2.setForegroundColor(dayColor);
       u8g2.setCursor(x+5,y+15);
-      if(cellTm.tm_mday==1 || slot==0){
+
+      bool showMonth=cellTm.tm_mday==1 || slot==0;
+      if(showMonth){
         u8g2.print(cellTm.tm_mon+1);
         u8g2.print("/");
       }
       u8g2.print(cellTm.tm_mday);
 
-      int line=0,hidden=0;
-      for(int i=0;i<eventCount;++i){
-        if(!eventOccursOnDay(events[i],cellStart)) continue;
-        if(line>=3){ hidden++; continue; }
-
-        int ey=y+29+line*15;
-        display.fillRect(x+5,ey-8,5,5,events[i].color);
-        String label=fitText(formatEventLabel(events[i]),CELL_W-20);
-        drawUtf8Korean(x+14,ey,label,C_BLACK,CELL_W-19);
-        line++;
+      if(holiday.length()){
+        int hx=x+(showMonth?38:24);
+        drawUtf8Korean(hx,y+15,holiday,C_RED,CELL_W-(hx-x)-4);
       }
 
+      int dayEventIndices[12];
+      int dayEventCount=0;
+      for(int i=0;i<eventCount && dayEventCount<12;++i){
+        if(events[i].calendarIndex==HOLIDAY_FEED_INDEX) continue;
+        if(eventOccursOnDay(events[i],cellStart)) dayEventIndices[dayEventCount++]=i;
+      }
+
+      int neededLines=0;
+      for(int n=0;n<dayEventCount && n<3;++n)
+        neededLines+=eventLineCount(events[dayEventIndices[n]],CELL_W-20);
+
+      int lineBudget=(dayEventCount<=3 && neededLines<=3)?3:2;
+      int line=0,shownEvents=0;
+
+      for(int n=0;n<dayEventCount;++n){
+        CalendarEvent& ev=events[dayEventIndices[n]];
+        if(line>=lineBudget) break;
+
+        String label=formatEventLabel(ev);
+        String first,second;
+        int next=takeTextLine(label,0,CELL_W-20,first);
+        bool needsSecond=next<label.length();
+
+        int remaining=lineBudget-line;
+        if(needsSecond && remaining<2 && n<dayEventCount-1){
+          String clipped=fitText(label,CELL_W-20);
+          int ey=y+29+line*14;
+          display.fillRect(x+5,ey-8,5,5,ev.color);
+          drawUtf8Korean(x+14,ey,clipped,C_BLACK,CELL_W-19);
+          line++;
+          shownEvents++;
+          continue;
+        }
+
+        int ey=y+29+line*14;
+        display.fillRect(x+5,ey-8,5,5,ev.color);
+        drawUtf8Korean(x+14,ey,first,C_BLACK,CELL_W-19);
+        line++;
+
+        if(needsSecond && line<lineBudget){
+          takeTextLine(label,next,CELL_W-19,second);
+          int ey2=y+29+line*14;
+          drawUtf8Korean(x+14,ey2,second,C_BLACK,CELL_W-19);
+          line++;
+        }
+        shownEvents++;
+      }
+
+      int hidden=dayEventCount-shownEvents;
       if(hidden>0){
         u8g2.setFont(u8g2_font_helvR08_tf);
         u8g2.setForegroundColor(C_BLACK);
