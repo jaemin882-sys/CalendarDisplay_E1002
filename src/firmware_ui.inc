@@ -63,34 +63,8 @@ String fitText(const String& input,int maxPixels){
   return out;
 }
 
-int daysInMonth(int year,int month1){
-  static const int d[]={31,28,31,30,31,30,31,31,30,31,30,31};
-  if(month1!=2) return d[month1-1];
-  bool leap=(year%400==0)||(year%4==0 && year%100!=0);
-  return leap?29:28;
-}
-
-int weekdayOfFirst(int year,int month1){
-  struct tm t={};
-  t.tm_year=year-1900;
-  t.tm_mon=month1-1;
-  t.tm_mday=1;
-  t.tm_hour=12;
-  t.tm_isdst=-1;
-  mktime(&t);
-  return t.tm_wday;
-}
-
-bool eventOccursOnDay(const CalendarEvent& e,int year,int month1,int day){
-  struct tm ds={};
-  ds.tm_year=year-1900;
-  ds.tm_mon=month1-1;
-  ds.tm_mday=day;
-  ds.tm_isdst=-1;
-  time_t dayStart=mktime(&ds);
-  ds.tm_mday+=1;
-  time_t nextDay=mktime(&ds);
-
+bool eventOccursOnDay(const CalendarEvent& e,time_t dayStart){
+  time_t nextDay=dayStart+86400;
   time_t end=e.end>e.start?e.end:e.start+1;
   return e.start<nextDay && end>dayStart;
 }
@@ -104,13 +78,14 @@ String formatEventLabel(const CalendarEvent& e){
   return String(timebuf)+" "+e.summary;
 }
 
-uint32_t computeRenderHash(int year,int month1){
+uint32_t computeRenderHash(time_t windowStart){
   uint32_t h=2166136261u;
   auto feedBytes=[&](const String& s){
     for(size_t i=0;i<s.length();++i){ h^=(uint8_t)s[i]; h*=16777619u; }
   };
-  feedBytes(String(year));
-  feedBytes(String(month1));
+  char windowBuf[32];
+  snprintf(windowBuf,sizeof(windowBuf),"%lld",(long long)windowStart);
+  feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
 
   for(int i=0;i<eventCount;++i){
@@ -126,25 +101,38 @@ uint32_t computeRenderHash(int year,int month1){
   return h;
 }
 
-void drawCalendarPage(int year,int month1,int todayDay,bool syncOk){
+void drawCalendarPage(time_t todayMidnight,bool syncOk){
   const int LEFT=16,RIGHT=784;
   const int GRID_TOP=86,HEADER_H=24,GRID_BOTTOM=470;
   const int CELL_W=(RIGHT-LEFT)/7;
   const int ROW_H=(GRID_BOTTOM-(GRID_TOP+HEADER_H))/6;
+
+  time_t windowStart=0,windowEnd=0;
+  displayWindow(windowStart,windowEnd);
+
+  struct tm firstTm={},lastTm={};
+  localtime_r(&windowStart,&firstTm);
+  time_t lastDay=windowEnd-86400;
+  localtime_r(&lastDay,&lastTm);
 
   display.setFullWindow();
   display.firstPage();
   do{
     display.fillScreen(C_WHITE);
 
-    char title[24];
-    snprintf(title,sizeof(title),"%04d.%02d",year,month1);
+    char title[32];
+    snprintf(
+      title,sizeof(title),
+      "%02d.%02d - %02d.%02d",
+      firstTm.tm_mon+1,firstTm.tm_mday,
+      lastTm.tm_mon+1,lastTm.tm_mday
+    );
     u8g2.setFont(u8g2_font_helvB18_tf);
     u8g2.setForegroundColor(C_BLACK);
     u8g2.setCursor(18,36);
     u8g2.print(title);
 
-    drawUtf8Korean(180,34,String(CUSTOM_MEMO_TEXT),C_BLACK,500);
+    drawUtf8Korean(240,34,String(CUSTOM_MEMO_TEXT),C_BLACK,440);
     display.fillCircle(770,24,5,syncOk?C_GREEN:C_RED);
 
     const char* wd[]={"일","월","화","수","목","금","토"};
@@ -164,17 +152,17 @@ void drawCalendarPage(int year,int month1,int todayDay,bool syncOk){
       display.drawLine(LEFT,y,RIGHT,y,C_BLACK);
     }
 
-    int firstWd=weekdayOfFirst(year,month1);
-    int dim=daysInMonth(year,month1);
-
-    for(int day=1;day<=dim;++day){
-      int slot=firstWd+day-1;
+    for(int slot=0;slot<42;++slot){
       int row=slot/7;
       int col=slot%7;
       int x=LEFT+col*CELL_W;
       int y=y0+row*ROW_H;
+      time_t cellStart=windowStart+(time_t)slot*86400;
 
-      if(day==todayDay){
+      struct tm cellTm={};
+      localtime_r(&cellStart,&cellTm);
+
+      if(cellStart==todayMidnight){
         display.drawRect(x+2,y+2,CELL_W-4,ROW_H-4,C_RED);
         display.drawRect(x+3,y+3,CELL_W-6,ROW_H-6,C_RED);
       }
@@ -183,11 +171,15 @@ void drawCalendarPage(int year,int month1,int todayDay,bool syncOk){
       u8g2.setFont(u8g2_font_helvB10_tf);
       u8g2.setForegroundColor(dayColor);
       u8g2.setCursor(x+5,y+15);
-      u8g2.print(day);
+      if(cellTm.tm_mday==1 || slot==0){
+        u8g2.print(cellTm.tm_mon+1);
+        u8g2.print("/");
+      }
+      u8g2.print(cellTm.tm_mday);
 
       int line=0,hidden=0;
       for(int i=0;i<eventCount;++i){
-        if(!eventOccursOnDay(events[i],year,month1,day)) continue;
+        if(!eventOccursOnDay(events[i],cellStart)) continue;
         if(line>=3){ hidden++; continue; }
 
         int ey=y+29+line*15;
@@ -207,7 +199,6 @@ void drawCalendarPage(int year,int month1,int todayDay,bool syncOk){
     }
   }while(display.nextPage());
 }
-
 
 void drawStatusPage(const String& title,const String& line1,const String& line2,uint16_t accent){
   display.setFullWindow();
