@@ -1,6 +1,5 @@
 @echo off
 cd /d "%~dp0"
-echo E1002 actual iCloud calendar preview
-echo.
-python tools\preview.py
+where py >nul 2>nul
+if %errorlevel% equ 0 (py -3 tools\preview.py) else (python tools\preview.py)
 if errorlevel 1 pause
