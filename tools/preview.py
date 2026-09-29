@@ -279,38 +279,86 @@ def build_payload():
     }
 
 
-def html_page(payload):
-    data=json.dumps(payload,ensure_ascii=False).replace("</","<\\/")
-    fonts=(ROOT/"tools/font_atlas.json").read_text(encoding="utf8")
-    layout=dict((name,int(value)) for name,value in re.findall(r"int (UI_\w+)=(\d+);",(ROOT/"src/ui_layout.h").read_text()))
-    script=(ROOT/"tools/preview_canvas.js").read_text(encoding="utf8")
-    return f'''<!doctype html><html lang="ko"><meta charset="utf-8">
+def layout_payload():
+    text = (ROOT / "src/ui_layout.h").read_text(encoding="utf8")
+    return dict((name, int(value)) for name, value in re.findall(r"int (UI_\w+)=(\d+);", text))
+
+
+def html_page():
+    return """<!doctype html><html lang="ko"><meta charset="utf-8">
 <title>E1002 펌웨어 비트맵 미리보기</title>
-<style>body{{background:#eee;font:14px sans-serif;padding:24px}} main{{width:800px;margin:auto}}canvas{{background:white;box-shadow:0 2px 12px #bbb;image-rendering:pixelated}}p{{color:#555}}</style>
-<main><p>800 × 480 · 이전 2주 + 현재 주 + 이후 3주 · 새로고침으로 다시 동기화</p>
-<canvas width="800" height="480"></canvas><p id="message"></p></main>
-<script>const p={data},fonts={fonts},layout={json.dumps(layout)};
-{script}</script></html>'''
+<style>
+body{background:#eee;font:14px sans-serif;padding:24px}
+main{width:800px;margin:auto}
+canvas{background:white;box-shadow:0 2px 12px #bbb;image-rendering:pixelated}
+p{color:#555}
+#error{color:#c00;font-weight:700;white-space:pre-wrap}
+</style>
+<main>
+<p>800 × 480 · 이전 2주 + 현재 주 + 이후 3주 · 새로고침으로 다시 동기화</p>
+<canvas width="800" height="480"></canvas>
+<p id="message">미리보기 데이터를 불러오는 중...</p>
+<p id="error"></p>
+</main>
+<script src="/app.js"></script>
+</html>"""
+
+
+def app_js():
+    renderer = (ROOT / "tools/preview_canvas.js").read_text(encoding="utf8")
+    return f"""(async()=>{{
+try{{
+  const [p,fonts,layout]=await Promise.all([
+    fetch('/payload.json',{{cache:'no-store'}}).then(r=>{{if(!r.ok)throw new Error('payload '+r.status);return r.json();}}),
+    fetch('/font_atlas.json',{{cache:'no-store'}}).then(r=>{{if(!r.ok)throw new Error('font '+r.status);return r.json();}}),
+    fetch('/layout.json',{{cache:'no-store'}}).then(r=>{{if(!r.ok)throw new Error('layout '+r.status);return r.json();}})
+  ]);
+{renderer}
+}}catch(e){{
+  console.error(e);
+  const m=document.querySelector('#message');
+  const box=document.querySelector('#error');
+  if(m)m.textContent='미리보기를 그리지 못했습니다.';
+  if(box)box.textContent='브라우저 렌더링 오류: '+(e&&e.message?e.message:String(e));
+}}
+}})();"""
 
 
 class Handler(BaseHTTPRequestHandler):
+    def send_bytes(self, body: bytes, content_type: str, status: int = 200):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         try:
-            payload = build_payload()
-            body = html_page(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            path = self.path.split("?", 1)[0]
+            if path in {"/", "/index.html"}:
+                self.send_bytes(html_page().encode("utf-8"), "text/html; charset=utf-8")
+                return
+            if path == "/payload.json":
+                body = json.dumps(build_payload(), ensure_ascii=False).encode("utf-8")
+                self.send_bytes(body, "application/json; charset=utf-8")
+                return
+            if path == "/font_atlas.json":
+                body = (ROOT / "tools/font_atlas.json").read_bytes()
+                self.send_bytes(body, "application/json; charset=utf-8")
+                return
+            if path == "/layout.json":
+                body = json.dumps(layout_payload()).encode("utf-8")
+                self.send_bytes(body, "application/json; charset=utf-8")
+                return
+            if path == "/app.js":
+                self.send_bytes(app_js().encode("utf-8"), "application/javascript; charset=utf-8")
+                return
+            self.send_bytes(b"Not found", "text/plain; charset=utf-8", 404)
         except Exception as exc:
-            body = "<meta charset='utf-8'><h2>미리보기 오류: 설정 및 네트워크를 확인하세요.</h2>".encode("utf-8")
-            self.send_response(500)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            print("preview request error:", repr(exc))
+            body = ("미리보기 서버 오류: " + type(exc).__name__ + ": " + str(exc)).encode("utf-8")
+            self.send_bytes(body, "text/plain; charset=utf-8", 500)
 
     def log_message(self, format, *args):
         pass
