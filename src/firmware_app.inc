@@ -40,6 +40,18 @@ void setup(){
     manualWake?"manual":"timer/power"
   );
 
+  if(!configurationLooksValid()){
+    initDisplay();
+    drawStatusPage(
+      "Calendar Display",
+      String("Wi-Fi 또는 iCloud 캘린더 설정이 필요합니다."),
+      String("src/config.h 파일을 확인하세요."),
+      C_YELLOW
+    );
+    sleepFor24hOrButton();
+    return;
+  }
+
   bool wifiOk=connectWiFi();
   bool clockOk=wifiOk && syncClock();
   bool dataOk=true;
@@ -72,17 +84,23 @@ void setup(){
   prefs.begin("caldisplay",false);
   uint32_t oldHash=prefs.getUInt("renderHash",0);
 
-  bool shouldRender=
-    manualWake || oldHash!=hash || oldHash==0 || !dataOk;
+  bool firstSuccessfulRender=(oldHash==0);
 
-  if(shouldRender){
-    drawCalendarPage(
-      year,
-      month1,
-      today,
-      wifiOk && clockOk && dataOk
+  if(dataOk){
+    bool shouldRender=manualWake || oldHash!=hash || firstSuccessfulRender;
+    if(shouldRender){
+      drawCalendarPage(year,month1,today,true);
+      prefs.putUInt("renderHash",hash);
+    }
+  }else if(firstSuccessfulRender){
+    drawStatusPage(
+      "Calendar Display",
+      String("첫 동기화에 실패했습니다."),
+      String("Wi-Fi / iCloud URL을 확인하고 버튼을 눌러 다시 시도하세요."),
+      C_RED
     );
-    if(dataOk) prefs.putUInt("renderHash",hash);
+  }else{
+    Serial.println("Sync failed. Keeping the last successful ePaper image.");
   }
 
   prefs.end();
