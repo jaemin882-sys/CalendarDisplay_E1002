@@ -380,8 +380,7 @@ body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Mal
 .sun .day,.holiday-day .day{{color:var(--red)}} .sat .day{{color:var(--blue)}}
 .holiday{{color:var(--red);font-size:9px;line-height:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
 .events{{height:50px;overflow:hidden}}
-.event{{line-height:12px;font-size:10px;padding-left:10px;position:relative;overflow:hidden;white-space:normal}}
-.event:before{{content:"";position:absolute;left:1px;top:5px;width:5px;height:5px;background:var(--c,#111)}}
+.event{{line-height:12px;font-size:10px;position:relative;overflow:hidden;white-space:normal}}
 .more{{position:absolute;left:14px;bottom:2px;font:10px/11px Arial,sans-serif}}
 .msg{{width:800px;margin:10px auto 0;font-size:12px;color:#555}} .err{{color:#a51616}}
 </style>
@@ -391,7 +390,7 @@ body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Mal
 <div class="screen">
   <div class="title" id="title"></div><div class="memo" id="memo"></div>
   <div class="status" id="status"></div>
-  <div class="weekdays"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
+  <div class="weekdays"><div>SUN</div><div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div>SAT</div></div>
   <div class="grid" id="grid"></div>
 </div>
 <div class="msg" id="msg"></div>
@@ -433,7 +432,8 @@ for(let slot=0;slot<42;slot++){{
   let shown=0;
   for(let i=0;i<visible;i++){{
     const e=es[i];
-    const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text;
+    const compact=e.text.replace(/\s+/g,"");
+    const r=document.createElement("div"); r.className="event"; r.textContent=compact; r.title=e.calendar+" · "+e.text;
     r.style.display="-webkit-box"; r.style.webkitBoxOrient="vertical"; r.style.webkitLineClamp=String(perEventLines);
     r.style.maxHeight=(perEventLines*12)+"px";
     box.appendChild(r); shown++;
