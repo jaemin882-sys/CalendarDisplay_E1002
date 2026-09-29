@@ -9,8 +9,16 @@ function text(s,x,y,color=black,font='body'){
  ctx.fillStyle=color;
  for(const c of s){const g=glyph(c,font);for(let row=0;row<32;row++)for(let col=0;col<24;col++)if(g[row+1]&(1<<col))ctx.fillRect(x+col,y-24+row,1,1);x+=g[font==='body'?0:33];}
 }
+const eventAdvance=c=>Math.max(1,glyph(c)[0]-2);
+function eventWidth(s){return Array.from(s).reduce((n,c)=>n+eventAdvance(c),0);}
+function eventText(s,x,y,color=black){
+ ctx.fillStyle=color;
+ for(const c of s){const g=glyph(c);for(let row=0;row<32;row++)for(let col=0;col<24;col++)if(g[row+1]&(1<<col))ctx.fillRect(x+col,y-24+row,1,1);x+=eventAdvance(c);}
+}
 function take(s,w){let out='',used=0;for(const c of s){const n=glyph(c)[0];if(used+n>w)break;out+=c;used+=n;}return out;}
 function fit(s,w){if(width(s)<=w)return s;return take(s,w-24)+'...';}
+function takeEvent(s,w){let out='',used=0;for(const c of s){const n=eventAdvance(c);if(used+n>w)break;out+=c;used+=n;}return out;}
+function fitEvent(s,w){if(eventWidth(s)<=w)return s;return takeEvent(s,w-18)+'...';}
 function rect(x,y,w,h,color){ctx.fillStyle=color;ctx.fillRect(x,y,w,1);ctx.fillRect(x,y+h-1,w,1);ctx.fillRect(x,y,1,h);ctx.fillRect(x+w-1,y,1,h);}
 const left=layout.UI_LEFT,right=layout.UI_RIGHT,cw=(right-left)/7,top=layout.UI_GRID_TOP+layout.UI_HEADER_H,rh=(layout.UI_GRID_BOTTOM-top)/6;
 const title=p.start.slice(5).replace('-','.')+' - '+p.end.slice(5).replace('-','.');
@@ -30,11 +38,11 @@ for(let slot=0;slot<42;slot++){
  let line=0;
  for(let i=0;i<shown;i++){
   const label=compact(es[i].text);let lines=es.length===1?3:1;
-  if(es.length===2){let firstNeedsTwo=width(compact(es[0].text))>cw-10;lines=(i===0?firstNeedsTwo:!firstNeedsTwo)?2:1;}
+  if(es.length===2){let firstNeedsTwo=eventWidth(compact(es[0].text))>cw-10;lines=(i===0?firstNeedsTwo:!firstNeedsTwo)?2:1;}
   let rest=label;
   for(let part=0;part<lines&&rest.length;part++){
-   const w=cw-10-(line===2?mw:0),piece=take(rest,w),draw=part===lines-1?fit(rest,w):piece;
-   text(draw,x+5,y+layout.UI_EVENT_BASELINE+line*layout.UI_EVENT_STEP);line++;rest=rest.slice(piece.length);
+   const w=cw-10-(line===2?mw:0),piece=takeEvent(rest,w),draw=part===lines-1?fitEvent(rest,w):piece;
+   eventText(draw,x+5,y+layout.UI_EVENT_BASELINE+line*layout.UI_EVENT_STEP);line++;rest=rest.slice(piece.length);
   }
  }
  if(hidden)text(more,x+cw-mw,y+65,black,'more');
