@@ -90,8 +90,8 @@ void emitRecurringEvent(const CalendarEvent& base,const String& rrule,const Stri
   time_t untilTime=untilValue.isEmpty()?0:parseIcsDateTime(untilValue,&untilAllDay);
   time_t duration=(base.end>base.start)?base.end-base.start:(base.allDay?86400:3600);
 
-  time_t monthStart=0,nextMonth=0;
-  currentMonthWindow(monthStart,nextMonth);
+  time_t windowStart=0,windowEnd=0;
+  displayWindow(windowStart,windowEnd);
 
   struct tm baseLocal={};
   localtime_r(&base.start,&baseLocal);
@@ -107,7 +107,7 @@ void emitRecurringEvent(const CalendarEvent& base,const String& rrule,const Stri
     struct tm candDay=baseDay;
     candDay.tm_mday+=dayOffset;
     time_t candMidnight=mktime(&candDay);
-    if(candMidnight>=nextMonth) break;
+    if(candMidnight>=windowEnd) break;
 
     struct tm cand={};
     localtime_r(&candMidnight,&cand);
@@ -151,7 +151,7 @@ void emitRecurringEvent(const CalendarEvent& base,const String& rrule,const Stri
     occurrenceCount++;
     if(maxCount>0 && occurrenceCount>maxCount) break;
 
-    if(occurrence>=monthStart && occurrence<nextMonth &&
+    if(occurrence>=windowStart && occurrence<windowEnd &&
        !isExcludedOccurrence(occurrence,exdates)){
       appendOccurrence(base,occurrence,duration);
     }
