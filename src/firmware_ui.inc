@@ -204,3 +204,27 @@ void drawCalendarPage(int year,int month1,int todayDay,bool syncOk){
     }
   }while(display.nextPage());
 }
+
+
+void drawStatusPage(const String& title,const String& line1,const String& line2,uint16_t accent){
+  display.setFullWindow();
+  display.firstPage();
+  do{
+    display.fillScreen(C_WHITE);
+    display.fillRect(0,0,14,480,accent);
+
+    u8g2.setForegroundColor(C_BLACK);
+    u8g2.setFont(u8g2_font_helvB18_tf);
+    u8g2.setCursor(38,90);
+    u8g2.print(title);
+
+    drawUtf8Korean(38,150,line1,C_BLACK,710);
+    drawUtf8Korean(38,190,line2,C_BLACK,710);
+
+    drawUtf8Korean(
+      38,430,
+      String("설정 후 USB-C로 다시 업로드하면 됩니다."),
+      C_BLACK,710
+    );
+  }while(display.nextPage());
+}
