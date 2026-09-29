@@ -63,6 +63,29 @@ String fitText(const String& input,int maxPixels){
   return out;
 }
 
+int takeTextLine(const String& input,int startByte,int maxPixels,String& out){
+  out="";
+  int used=0;
+  int i=startByte;
+  while(i<input.length()){
+    int len=utf8CharLen((uint8_t)input[i]);
+    String ch=input.substring(i,min(i+len,(int)input.length()));
+    char buf[8]={0};
+    ch.toCharArray(buf,sizeof(buf));
+
+    int w=glyphWidthFor(buf,u8g2_font_unifont_t_korean1);
+    if(w<=0) w=glyphWidthFor(buf,u8g2_font_unifont_t_korean2);
+    if(w<=0) w=glyphWidthFor(buf,u8g2_font_helvR10_tf);
+    if(w<=0) w=8;
+
+    if(used+w>maxPixels && out.length()>0) break;
+    out+=ch;
+    used+=w;
+    i+=len;
+  }
+  return i;
+}
+
 bool eventOccursOnDay(const CalendarEvent& e,time_t dayStart){
   time_t nextDay=dayStart+86400;
   time_t end=e.end>e.start?e.end:e.start+1;
@@ -87,13 +110,6 @@ String holidayNameForDay(time_t dayStart){
     name+=events[i].summary;
   }
   return name;
-}
-
-int eventLineCount(const CalendarEvent& e,int maxPixels){
-  String label=formatEventLabel(e);
-  String first;
-  int next=takeTextLine(label,0,maxPixels,first);
-  return next<label.length()?2:1;
 }
 
 uint32_t computeRenderHash(time_t windowStart){
