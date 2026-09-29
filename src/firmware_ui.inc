@@ -101,6 +101,13 @@ String formatEventLabel(const CalendarEvent& e){
   return String(timebuf)+" "+e.summary;
 }
 
+String compactEventLabel(const CalendarEvent& e){
+  String s=formatEventLabel(e);
+  s.replace(" ","");
+  s.replace("\t","");
+  return s;
+}
+
 String holidayNameForDay(time_t dayStart){
   String name="";
   for(int i=0;i<eventCount;++i){
@@ -169,11 +176,15 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     drawUtf8Korean(240,29,String(CUSTOM_MEMO_TEXT),C_BLACK,440);
     display.fillCircle(770,20,5,syncOk?C_GREEN:C_RED);
 
-    const char* wd[]={"일","월","화","수","목","금","토"};
+    const char* wd[]={"SUN","MON","TUE","WED","THU","FRI","SAT"};
     for(int c=0;c<7;++c){
       int x=LEFT+c*CELL_W;
       uint16_t col=c==0?C_RED:(c==6?C_BLUE:C_BLACK);
-      drawUtf8Korean(x+CELL_W/2-7,GRID_TOP+15,String(wd[c]),col,20);
+      u8g2.setFont(u8g2_font_helvB10_tf);
+      u8g2.setForegroundColor(col);
+      int ww=u8g2.getUTF8Width(wd[c]);
+      u8g2.setCursor(x+(CELL_W-ww)/2,GRID_TOP+15);
+      u8g2.print(wd[c]);
     }
 
     int y0=GRID_TOP+HEADER_H;
@@ -238,19 +249,18 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
       const int EVENT_STEP=14;
       for(int n=0;n<maxVisibleEvents;++n){
         CalendarEvent& ev=events[dayEventIndices[n]];
-        String label=formatEventLabel(ev);
+        String label=compactEventLabel(ev);
         int pos=0;
 
         for(int part=0;part<perEventLines && pos<label.length();++part){
           String piece;
-          int next=takeTextLine(label,pos,CELL_W-20,piece);
+          int next=takeTextLine(label,pos,CELL_W-10,piece);
           if(next<label.length() && part==perEventLines-1){
-            piece=fitText(label.substring(pos),CELL_W-20);
+            piece=fitText(label.substring(pos),CELL_W-10);
           }
 
           int ey=y+29+line*EVENT_STEP;
-          if(part==0) display.fillRect(x+5,ey-8,5,5,ev.color);
-          drawUtf8Korean(x+14,ey,piece,C_BLACK,CELL_W-19);
+          drawUtf8Korean(x+5,ey,piece,C_BLACK,CELL_W-9);
           line++;
           if(next<=pos) break;
           pos=next;
