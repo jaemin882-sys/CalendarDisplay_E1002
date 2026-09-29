@@ -5,5 +5,5 @@ static constexpr int UI_RIGHT=792;
 static constexpr int UI_GRID_TOP=30;
 static constexpr int UI_HEADER_H=20;
 static constexpr int UI_GRID_BOTTOM=476;
-static constexpr int UI_EVENT_BASELINE=33;
-static constexpr int UI_EVENT_STEP=16;
+static constexpr int UI_EVENT_BASELINE=32;
+static constexpr int UI_EVENT_STEP=15;
