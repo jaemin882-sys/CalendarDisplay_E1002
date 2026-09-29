@@ -114,8 +114,11 @@ uint32_t computeRenderHash(int year,int month1){
   feedBytes(CUSTOM_MEMO_TEXT);
 
   for(int i=0;i<eventCount;++i){
-    feedBytes(String((long long)events[i].start));
-    feedBytes(String((long long)events[i].end));
+    char timeBuf[32];
+    snprintf(timeBuf,sizeof(timeBuf),"%lld",(long long)events[i].start);
+    feedBytes(String(timeBuf));
+    snprintf(timeBuf,sizeof(timeBuf),"%lld",(long long)events[i].end);
+    feedBytes(String(timeBuf));
     feedBytes(events[i].summary);
     h^=events[i].calendarIndex;
     h*=16777619u;
