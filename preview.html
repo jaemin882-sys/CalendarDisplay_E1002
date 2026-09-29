@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CalendarDisplay E1002 Preview</title>
+<style>
+  :root{
+    --black:#111; --white:#fff; --red:#d92828; --blue:#2455d6;
+    --green:#3f8f45; --yellow:#e4b72c; --orange:#dc7c25;
+    --line:#222; --bg:#ececec;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px; background:var(--bg);
+    font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    color:#111;
+  }
+  .toolbar{
+    width:800px; margin:0 auto 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+  }
+  button,input{font:inherit}
+  button{padding:7px 12px; cursor:pointer}
+  #memoInput{flex:1; min-width:260px; padding:7px 9px}
+  .note{font-size:12px; color:#555; width:800px; margin:10px auto 0}
+  .screen{
+    width:800px; height:480px; margin:auto; background:white;
+    box-shadow:0 3px 16px rgba(0,0,0,.18);
+    position:relative; overflow:hidden;
+  }
+  .title{
+    position:absolute; left:18px; top:8px; font:700 25px/1 Arial,sans-serif;
+  }
+  .memo{
+    position:absolute; left:180px; top:10px; width:570px;
+    font-size:16px; line-height:24px; white-space:nowrap; overflow:hidden;
+  }
+  .status{
+    position:absolute; right:25px; top:19px; width:10px; height:10px;
+    border-radius:50%; background:var(--green);
+  }
+  .weekdays{
+    position:absolute; left:16px; top:86px; width:768px; height:24px;
+    display:grid; grid-template-columns:repeat(7,1fr);
+    align-items:center; text-align:center; font-size:14px;
+  }
+  .weekdays div:first-child{color:var(--red)}
+  .weekdays div:last-child{color:var(--blue)}
+  .grid{
+    position:absolute; left:16px; top:110px; width:768px; height:360px;
+    display:grid; grid-template-columns:repeat(7,1fr); grid-template-rows:repeat(6,60px);
+    border-left:1px solid var(--line); border-top:1px solid var(--line);
+  }
+  .cell{
+    position:relative; border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+    padding:3px 4px; overflow:hidden; background:#fff;
+  }
+  .cell.today:after{
+    content:""; position:absolute; inset:2px; border:2px solid var(--red); pointer-events:none;
+  }
+  .day{
+    height:17px; font:700 14px/16px Arial,sans-serif;
+  }
+  .sun .day{color:var(--red)}
+  .sat .day{color:var(--blue)}
+  .event{
+    height:15px; line-height:15px; font-size:11px; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; padding-left:10px; position:relative;
+  }
+  .event:before{
+    content:""; position:absolute; left:1px; top:5px; width:5px; height:5px;
+    background:var(--event-color,#111);
+  }
+  .more{
+    position:absolute; left:14px; bottom:2px; font:11px/12px Arial,sans-serif;
+  }
+  .empty{background:#fff}
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="prev">◀ 이전 달</button>
+    <button id="today">오늘</button>
+    <button id="next">다음 달 ▶</button>
+    <input id="memoInput" value="이번 달 가족 일정">
+    <button id="applyMemo">메모 적용</button>
+  </div>
+
+  <div class="screen">
+    <div class="title" id="title"></div>
+    <div class="memo" id="memo"></div>
+    <div class="status" title="동기화 정상"></div>
+    <div class="weekdays">
+      <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="note">
+    PC 미리보기용입니다. 실제 E1002는 Spectra 6 색감과 비트맵 한글 폰트 때문에 글꼴/색상이 조금 다르게 보일 수 있습니다.
+  </div>
+
+<script>
+const palette = ["#d92828","#2455d6","#3f8f45","#dc7c25","#111111"];
+let view = new Date();
+view.setDate(1);
+
+const sampleEvents = [
+  {day:2, text:"어린이집 상담", color:2},
+  {day:4, text:"10:30 병원 예약", color:0},
+  {day:7, text:"가족 점심", color:3},
+  {day:11, text:"09:00 미팅", color:1},
+  {day:11, text:"택배 도착", color:2},
+  {day:11, text:"저녁 약속", color:0},
+  {day:11, text:"마트 장보기", color:3},
+  {day:15, text:"생일", color:0},
+  {day:18, text:"14:00 일정", color:1},
+  {day:23, text:"여행 준비", color:2},
+  {day:27, text:"가족 일정", color:3}
+];
+
+function daysInMonth(y,m){ return new Date(y,m+1,0).getDate(); }
+
+function render(){
+  const y=view.getFullYear(), m=view.getMonth();
+  document.getElementById("title").textContent = y+"."+String(m+1).padStart(2,"0");
+  document.getElementById("memo").textContent = document.getElementById("memoInput").value;
+
+  const grid=document.getElementById("grid");
+  grid.innerHTML="";
+  const first=new Date(y,m,1).getDay();
+  const dim=daysInMonth(y,m);
+  const now=new Date();
+
+  for(let slot=0;slot<42;slot++){
+    const cell=document.createElement("div");
+    const col=slot%7;
+    cell.className="cell "+(col===0?"sun ":"")+(col===6?"sat ":"");
+    const day=slot-first+1;
+
+    if(day<1 || day>dim){
+      cell.classList.add("empty");
+      grid.appendChild(cell);
+      continue;
+    }
+
+    if(y===now.getFullYear() && m===now.getMonth() && day===now.getDate()){
+      cell.classList.add("today");
+    }
+
+    const d=document.createElement("div");
+    d.className="day";
+    d.textContent=day;
+    cell.appendChild(d);
+
+    const events=sampleEvents.filter(e=>e.day===day);
+    events.slice(0,3).forEach(e=>{
+      const row=document.createElement("div");
+      row.className="event";
+      row.style.setProperty("--event-color",palette[e.color]);
+      row.textContent=e.text;
+      cell.appendChild(row);
+    });
+
+    if(events.length>3){
+      const more=document.createElement("div");
+      more.className="more";
+      more.textContent="+"+(events.length-3);
+      cell.appendChild(more);
+    }
+
+    grid.appendChild(cell);
+  }
+}
+
+document.getElementById("prev").onclick=()=>{ view.setMonth(view.getMonth()-1); render(); };
+document.getElementById("next").onclick=()=>{ view.setMonth(view.getMonth()+1); render(); };
+document.getElementById("today").onclick=()=>{ view=new Date(); view.setDate(1); render(); };
+document.getElementById("applyMemo").onclick=render;
+document.getElementById("memoInput").addEventListener("keydown",e=>{ if(e.key==="Enter") render(); });
+render();
+</script>
+</body>
+</html>
