@@ -16,6 +16,10 @@ PORT = 8765
 KST = timezone(timedelta(hours=9))
 
 COLORS = ["#d92828", "#2455d6", "#3f8f45", "#dc7c25"]
+KOREA_HOLIDAY_ICS = (
+    "https://calendar.google.com/calendar/ical/"
+    "ko.south_korea.official%23holiday%40group.v.calendar.google.com/public/basic.ics"
+)
 
 
 def cpp_string(name: str, text: str, default: str = "") -> str:
@@ -40,6 +44,13 @@ def load_config():
 
     if not feeds:
         raise RuntimeError("config.h 에 캘린더 주소가 없습니다.")
+
+    feeds.append({
+        "name": "공휴일",
+        "url": KOREA_HOLIDAY_ICS,
+        "color": "#d92828",
+        "holiday": True,
+    })
 
     return {
         "memo": cpp_string("CUSTOM_MEMO_TEXT", text, ""),
@@ -222,14 +233,14 @@ def expand_event(base: dict, month_start: datetime, month_end: datetime):
     return out
 
 
-def parse_ics(text: str, cal_name: str, color: str, month_start: datetime, month_end: datetime):
+def parse_ics(text: str, cal_name: str, color: str, month_start: datetime, month_end: datetime, holiday: bool = False):
     lines = unfold_ics(text)
     events = []
     current = None
 
     for line in lines:
         if line == "BEGIN:VEVENT":
-            current = {"summary": "(제목 없음)", "calendar": cal_name, "color": color, "exdates": set()}
+            current = {"summary": "(제목 없음)", "calendar": cal_name, "color": color, "exdates": set(), "holiday": holiday}
             continue
         if line == "END:VEVENT":
             if current and current.get("start"):
@@ -298,18 +309,27 @@ def build_payload():
     for feed in cfg["feeds"]:
         try:
             ics = fetch_ics(feed["url"])
-            all_events.extend(parse_ics(ics, feed["name"], feed["color"], window_start, window_end))
+            all_events.extend(parse_ics(
+                ics, feed["name"], feed["color"], window_start, window_end, feed.get("holiday", False)
+            ))
         except Exception as exc:
             errors.append(f'{feed["name"]}: {exc}')
 
     by_day = {}
+    holidays = {}
     d = window_start
     while d < window_end:
-        by_day[d.date().isoformat()] = []
+        key = d.date().isoformat()
+        by_day[key] = []
+        holidays[key] = []
         d += timedelta(days=1)
 
     for e in sorted(all_events, key=lambda x: x["start"]):
         for key in event_days(e, window_start, window_end):
+            if e.get("holiday"):
+                holidays[key].append(e["summary"])
+                continue
+
             if e.get("allDay"):
                 label = e["summary"]
             else:
@@ -327,6 +347,7 @@ def build_payload():
         "today": now.date().isoformat(),
         "memo": cfg["memo"],
         "days": by_day,
+        "holidays": holidays,
         "errors": errors,
     }
 
@@ -354,10 +375,14 @@ body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Mal
 .grid{{position:absolute;left:16px;top:110px;width:768px;height:360px;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(6,60px);border-left:1px solid var(--line);border-top:1px solid var(--line)}}
 .cell{{position:relative;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 4px;overflow:hidden;background:#fff}}
 .cell.today:after{{content:"";position:absolute;inset:2px;border:2px solid var(--red);pointer-events:none}}
-.day{{height:17px;font:700 14px/16px Arial,sans-serif}} .sun .day{{color:var(--red)}} .sat .day{{color:var(--blue)}}
-.event{{height:15px;line-height:15px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:10px;position:relative}}
+.dayline{{height:17px;display:flex;align-items:baseline;gap:5px;min-width:0}}
+.day{{font:700 14px/16px Arial,sans-serif;flex:0 0 auto}}
+.sun .day,.holiday-day .day{{color:var(--red)}} .sat .day{{color:var(--blue)}}
+.holiday{{color:var(--red);font-size:9px;line-height:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
+.events{{height:42px;overflow:hidden}}
+.event{{min-height:14px;line-height:13px;font-size:10px;padding-left:10px;position:relative;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}}
 .event:before{{content:"";position:absolute;left:1px;top:5px;width:5px;height:5px;background:var(--c,#111)}}
-.more{{position:absolute;left:14px;bottom:2px;font:11px/12px Arial,sans-serif}}
+.more{{position:absolute;left:14px;bottom:2px;font:10px/11px Arial,sans-serif}}
 .msg{{width:800px;margin:10px auto 0;font-size:12px;color:#555}} .err{{color:#a51616}}
 </style>
 </head>
@@ -380,7 +405,7 @@ document.getElementById("memo").textContent=p.memo;
 if(p.errors.length) document.getElementById("status").classList.add("bad");
 document.getElementById("msg").innerHTML=p.errors.length
  ? '<span class="err">일부 캘린더 불러오기 실패: '+p.errors.map(x=>x.replace(/[<>&]/g,"")).join(" / ")+'</span>'
- : '현재 주 기준 이전 2주 + 현재 주 + 이후 3주를 표시합니다. 공개 iCloud 주소는 PC의 src/config.h에서만 읽습니다.';
+ : '이전 2주 + 현재 주 + 이후 3주를 표시합니다. 대한민국 공휴일은 자동으로 추가되며 날짜 옆에 표시됩니다.';
 const grid=document.getElementById("grid");
 for(let slot=0;slot<42;slot++){{
   const cell=document.createElement("div"), col=slot%7;
@@ -388,14 +413,31 @@ for(let slot=0;slot<42;slot++){{
   const d=new Date(start); d.setDate(start.getDate()+slot);
   const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   if(key===p.today) cell.classList.add("today");
+
+  const hs=p.holidays[key]||[];
+  if(hs.length) cell.classList.add("holiday-day");
+
+  const line=document.createElement("div"); line.className="dayline";
   const dn=document.createElement("div"); dn.className="day";
   dn.textContent=(d.getDate()===1||slot===0)?(d.getMonth()+1)+"/"+d.getDate():d.getDate();
-  cell.appendChild(dn);
+  line.appendChild(dn);
+  if(hs.length){{
+    const h=document.createElement("div"); h.className="holiday"; h.textContent=hs.join("·"); h.title=hs.join(" / "); line.appendChild(h);
+  }}
+  cell.appendChild(line);
+
   const es=p.days[key]||[];
-  es.slice(0,3).forEach(e=>{{
-    const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text; cell.appendChild(r);
-  }});
-  if(es.length>3){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-3);cell.appendChild(more);}}
+  const box=document.createElement("div"); box.className="events";
+  let usedLines=0, shown=0;
+  for(const e of es){{
+    const approxLines=e.text.length>11?2:1;
+    const maxLines=(es.length<=3 && es.slice(0,3).reduce((n,x)=>n+(x.text.length>11?2:1),0)<=3)?3:2;
+    if(usedLines+approxLines>maxLines) break;
+    const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text;
+    box.appendChild(r); usedLines+=approxLines; shown++;
+  }}
+  cell.appendChild(box);
+  if(es.length>shown){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-shown);cell.appendChild(more);}}
   grid.appendChild(cell);
 }}
 </script>
