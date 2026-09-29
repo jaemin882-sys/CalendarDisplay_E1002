@@ -4,7 +4,9 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <SPI.h>
-#include <Preferences.h>\n#include "esp_sleep.h"\n#include "driver/rtc_io.h"
+#include <Preferences.h>
+#include "esp_sleep.h"
+#include "driver/rtc_io.h"
 #include <GxEPD2_7C.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
@@ -95,7 +97,15 @@ time_t parseIcsDateTime(const String& value,bool* isAllDay){
     t.tm_min=v.substring(11,13).toInt();
     t.tm_sec=v.substring(13,15).toInt();
   }
-  return v.endsWith("Z") ? timegm(&t) : mktime(&t);
+  if(v.endsWith("Z")){
+    setenv("TZ","UTC0",1);
+    tzset();
+    time_t utc=mktime(&t);
+    setenv("TZ",TZ_INFO,1);
+    tzset();
+    return utc;
+  }
+  return mktime(&t);
 }
 
 bool lineStartsWithProperty(const String& line,const char* prop){
