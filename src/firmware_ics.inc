@@ -80,7 +80,8 @@ void emitRecurringEvent(const CalendarEvent& base,const String& rrule,const Stri
   }
 
   String freq=rrulePart(rrule,"FREQ");
-  int interval=max(1,rrulePart(rrule,"INTERVAL").toInt());
+  int interval=(int)rrulePart(rrule,"INTERVAL").toInt();
+  if(interval<1) interval=1;
   int maxCount=rrulePart(rrule,"COUNT").toInt();
   String untilValue=rrulePart(rrule,"UNTIL");
   String byday=rrulePart(rrule,"BYDAY");
