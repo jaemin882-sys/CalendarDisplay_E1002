@@ -121,7 +121,7 @@ uint32_t computeRenderHash(time_t windowStart){
 
 void drawCalendarPage(time_t todayMidnight,bool syncOk){
   const int LEFT=16,RIGHT=784;
-  const int GRID_TOP=86,HEADER_H=24,GRID_BOTTOM=470;
+  const int GRID_TOP=48,HEADER_H=20,GRID_BOTTOM=476;
   const int CELL_W=(RIGHT-LEFT)/7;
   const int ROW_H=(GRID_BOTTOM-(GRID_TOP+HEADER_H))/6;
 
@@ -147,17 +147,17 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     );
     u8g2.setFont(u8g2_font_helvB18_tf);
     u8g2.setForegroundColor(C_BLACK);
-    u8g2.setCursor(18,36);
+    u8g2.setCursor(18,30);
     u8g2.print(title);
 
-    drawUtf8Korean(240,34,String(CUSTOM_MEMO_TEXT),C_BLACK,440);
-    display.fillCircle(770,24,5,syncOk?C_GREEN:C_RED);
+    drawUtf8Korean(240,29,String(CUSTOM_MEMO_TEXT),C_BLACK,440);
+    display.fillCircle(770,20,5,syncOk?C_GREEN:C_RED);
 
     const char* wd[]={"일","월","화","수","목","금","토"};
     for(int c=0;c<7;++c){
       int x=LEFT+c*CELL_W;
       uint16_t col=c==0?C_RED:(c==6?C_BLUE:C_BLACK);
-      drawUtf8Korean(x+CELL_W/2-7,GRID_TOP+17,String(wd[c]),col,20);
+      drawUtf8Korean(x+CELL_W/2-7,GRID_TOP+15,String(wd[c]),col,20);
     }
 
     int y0=GRID_TOP+HEADER_H;
@@ -212,43 +212,32 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
         if(eventOccursOnDay(events[i],cellStart)) dayEventIndices[dayEventCount++]=i;
       }
 
-      int neededLines=0;
-      for(int n=0;n<dayEventCount && n<3;++n)
-        neededLines+=eventLineCount(events[dayEventIndices[n]],CELL_W-20);
+      int perEventLines=1;
+      int maxVisibleEvents=min(dayEventCount,3);
+      if(dayEventCount==1) perEventLines=3;
+      else if(dayEventCount==2) perEventLines=2;
+      else perEventLines=1;
 
-      int lineBudget=(dayEventCount<=3 && neededLines<=3)?3:2;
       int line=0,shownEvents=0;
-
-      for(int n=0;n<dayEventCount;++n){
+      const int EVENT_STEP=14;
+      for(int n=0;n<maxVisibleEvents;++n){
         CalendarEvent& ev=events[dayEventIndices[n]];
-        if(line>=lineBudget) break;
-
         String label=formatEventLabel(ev);
-        String first,second;
-        int next=takeTextLine(label,0,CELL_W-20,first);
-        bool needsSecond=next<label.length();
+        int pos=0;
 
-        int remaining=lineBudget-line;
-        if(needsSecond && remaining<2 && n<dayEventCount-1){
-          String clipped=fitText(label,CELL_W-20);
-          int ey=y+29+line*14;
-          display.fillRect(x+5,ey-8,5,5,ev.color);
-          drawUtf8Korean(x+14,ey,clipped,C_BLACK,CELL_W-19);
+        for(int part=0;part<perEventLines && pos<label.length();++part){
+          String piece;
+          int next=takeTextLine(label,pos,CELL_W-20,piece);
+          if(next<label.length() && part==perEventLines-1){
+            piece=fitText(label.substring(pos),CELL_W-20);
+          }
+
+          int ey=y+29+line*EVENT_STEP;
+          if(part==0) display.fillRect(x+5,ey-8,5,5,ev.color);
+          drawUtf8Korean(x+14,ey,piece,C_BLACK,CELL_W-19);
           line++;
-          shownEvents++;
-          continue;
-        }
-
-        int ey=y+29+line*14;
-        display.fillRect(x+5,ey-8,5,5,ev.color);
-        drawUtf8Korean(x+14,ey,first,C_BLACK,CELL_W-19);
-        line++;
-
-        if(needsSecond && line<lineBudget){
-          takeTextLine(label,next,CELL_W-19,second);
-          int ey2=y+29+line*14;
-          drawUtf8Korean(x+14,ey2,second,C_BLACK,CELL_W-19);
-          line++;
+          if(next<=pos) break;
+          pos=next;
         }
         shownEvents++;
       }
