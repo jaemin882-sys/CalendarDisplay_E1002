@@ -45,11 +45,17 @@ struct CalendarFeed {
   uint16_t color;
 };
 
+static constexpr uint8_t HOLIDAY_FEED_INDEX=4;
+static const char* KOREA_HOLIDAY_ICS=
+  "https://calendar.google.com/calendar/ical/"
+  "ko.south_korea.official%23holiday%40group.v.calendar.google.com/public/basic.ics";
+
 CalendarFeed feeds[] = {
   {CALENDAR_1_NAME,CALENDAR_1_URL,C_BLUE},
   {CALENDAR_2_NAME,CALENDAR_2_URL,C_GREEN},
   {CALENDAR_3_NAME,CALENDAR_3_URL,C_RED},
   {CALENDAR_4_NAME,CALENDAR_4_URL,C_YELLOW},
+  {"공휴일",KOREA_HOLIDAY_ICS,C_RED},
 };
 
 struct CalendarEvent {
