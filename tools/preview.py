@@ -366,21 +366,21 @@ def html_page(payload):
 body{{margin:0;padding:26px;background:var(--bg);font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#111}}
 .top{{width:800px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px}}
 .screen{{width:800px;height:480px;margin:auto;background:white;box-shadow:0 3px 16px rgba(0,0,0,.18);position:relative;overflow:hidden}}
-.title{{position:absolute;left:18px;top:8px;font:700 25px/1 Arial,sans-serif}}
-.memo{{position:absolute;left:180px;top:10px;width:565px;font-size:16px;line-height:24px;white-space:nowrap;overflow:hidden}}
-.status{{position:absolute;right:25px;top:19px;width:10px;height:10px;border-radius:50%;background:var(--green)}}
+.title{{position:absolute;left:18px;top:6px;font:700 25px/1 Arial,sans-serif}}
+.memo{{position:absolute;left:180px;top:7px;width:565px;font-size:16px;line-height:24px;white-space:nowrap;overflow:hidden}}
+.status{{position:absolute;right:25px;top:15px;width:10px;height:10px;border-radius:50%;background:var(--green)}}
 .status.bad{{background:var(--red)}}
-.weekdays{{position:absolute;left:16px;top:86px;width:768px;height:24px;display:grid;grid-template-columns:repeat(7,1fr);align-items:center;text-align:center;font-size:14px}}
+.weekdays{{position:absolute;left:16px;top:48px;width:768px;height:20px;display:grid;grid-template-columns:repeat(7,1fr);align-items:center;text-align:center;font-size:14px}}
 .weekdays div:first-child{{color:var(--red)}} .weekdays div:last-child{{color:var(--blue)}}
-.grid{{position:absolute;left:16px;top:110px;width:768px;height:360px;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(6,60px);border-left:1px solid var(--line);border-top:1px solid var(--line)}}
+.grid{{position:absolute;left:16px;top:68px;width:768px;height:408px;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(6,68px);border-left:1px solid var(--line);border-top:1px solid var(--line)}}
 .cell{{position:relative;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 4px;overflow:hidden;background:#fff}}
 .cell.today:after{{content:"";position:absolute;inset:2px;border:2px solid var(--red);pointer-events:none}}
 .dayline{{height:17px;display:flex;align-items:baseline;gap:5px;min-width:0}}
 .day{{font:700 14px/16px Arial,sans-serif;flex:0 0 auto}}
 .sun .day,.holiday-day .day{{color:var(--red)}} .sat .day{{color:var(--blue)}}
 .holiday{{color:var(--red);font-size:9px;line-height:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
-.events{{height:42px;overflow:hidden}}
-.event{{min-height:14px;line-height:13px;font-size:10px;padding-left:10px;position:relative;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}}
+.events{{height:50px;overflow:hidden}}
+.event{{line-height:12px;font-size:10px;padding-left:10px;position:relative;overflow:hidden;white-space:normal}}
 .event:before{{content:"";position:absolute;left:1px;top:5px;width:5px;height:5px;background:var(--c,#111)}}
 .more{{position:absolute;left:14px;bottom:2px;font:10px/11px Arial,sans-serif}}
 .msg{{width:800px;margin:10px auto 0;font-size:12px;color:#555}} .err{{color:#a51616}}
@@ -428,13 +428,15 @@ for(let slot=0;slot<42;slot++){{
 
   const es=p.days[key]||[];
   const box=document.createElement("div"); box.className="events";
-  let usedLines=0, shown=0;
-  for(const e of es){{
-    const approxLines=e.text.length>11?2:1;
-    const maxLines=(es.length<=3 && es.slice(0,3).reduce((n,x)=>n+(x.text.length>11?2:1),0)<=3)?3:2;
-    if(usedLines+approxLines>maxLines) break;
+  const visible=Math.min(es.length,3);
+  const perEventLines=es.length===1?3:(es.length===2?2:1);
+  let shown=0;
+  for(let i=0;i<visible;i++){{
+    const e=es[i];
     const r=document.createElement("div"); r.className="event"; r.style.setProperty("--c",e.color); r.textContent=e.text; r.title=e.calendar+" · "+e.text;
-    box.appendChild(r); usedLines+=approxLines; shown++;
+    r.style.display="-webkit-box"; r.style.webkitBoxOrient="vertical"; r.style.webkitLineClamp=String(perEventLines);
+    r.style.maxHeight=(perEventLines*12)+"px";
+    box.appendChild(r); shown++;
   }}
   cell.appendChild(box);
   if(es.length>shown){{const more=document.createElement("div");more.className="more";more.textContent="+"+(es.length-shown);cell.appendChild(more);}}
