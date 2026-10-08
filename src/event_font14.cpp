@@ -7,7 +7,7 @@
 */
 #include <U8g2_for_Adafruit_GFX.h>
 #ifdef U8G2_USE_LARGE_FONTS
-const uint8_t u8g2_font_gulim14_t_korean2[70790] U8G2_FONT_SECTION("u8g2_font_gulim14_t_korean2") = 
+extern const uint8_t u8g2_font_gulim14_t_korean2[70790] U8G2_FONT_SECTION("u8g2_font_gulim14_t_korean2") = 
   "\216\0\3\2\4\4\3\5\5\16\16\0\376\13\377\14\377\1\237\3\211\5\0 \5\0\204\25!\7\261\206"
   "\25\207H\42\7\63\305\25\211%#\27\270\204xQ\30\205Q\64\14Q\61\12\243h\30\242b\24F\31"
   "\0$\24\307\205y\341\240D\221\24I\341<FR$U\6\61\3%\22\251\205;Z\324K(\345\71"
