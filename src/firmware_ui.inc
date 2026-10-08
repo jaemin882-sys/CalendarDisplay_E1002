@@ -260,7 +260,16 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     u8g2.print(title);
 
     int titleWidth=u8g2.getUTF8Width(title);
-    drawUtf8Korean(10+titleWidth+18,23,fitText(String(CUSTOM_MEMO_TEXT),740-titleWidth-18),C_BLACK,740-titleWidth-18);
+    drawUtf8Korean(10+titleWidth+18,23,fitText(String(CUSTOM_MEMO_TEXT),650-titleWidth-18),C_BLACK,650-titleWidth-18);
+    if(batteryPercent>=0){
+      // Top-right compact status, away from date cells.
+      char batteryText[12];
+      snprintf(batteryText,sizeof(batteryText),"%d%%",batteryPercent);
+      selectFont(u8g2_font_helvB10_tf);
+      u8g2.setForegroundColor(C_BLACK);
+      u8g2.setCursor(731,23);
+      u8g2.print(batteryText);
+    }
     // Small marker means holiday source stale/unavailable, not personal failure.
     if(!syncOk) display.fillCircle(780,16,3,C_RED);
 
