@@ -1,4 +1,5 @@
 #include "ui_layout.h"
+extern const uint8_t u8g2_font_gulim14_t_korean2[];
 // Upstream setFont resets transparency whenever the font changes.
 // Restore it on EVERY switch, including fallback/measurement calls.
 void selectFont(const uint8_t* font){
@@ -93,6 +94,18 @@ int takeTextLine(const String& input,int startByte,int maxPixels,String& out){
   return i;
 }
 
+int readEventGlyph(const String& text,int offset,char (&buf)[8],const uint8_t*& font){
+  int len=readGlyph(text,offset,buf,font);
+  font=u8g2_font_gulim14_t_korean2;
+  selectFont(font);
+  if(u8g2.getUTF8Width(buf)<=0){
+    font=u8g2_font_helvR10_tf;
+    selectFont(font);
+  }
+  if(u8g2.getUTF8Width(buf)<=0) strcpy(buf,"?");
+  return len;
+}
+
 static constexpr int EVENT_TRACKING=-1;
 
 int eventGlyphAdvance(const char* utf8,const uint8_t* font){
@@ -105,7 +118,7 @@ int takeEventTextLine(const String& input,int startByte,int maxPixels,String& ou
   int i=startByte;
   while(i<input.length()){
     char buf[8]={0};const uint8_t* font=nullptr;
-    int len=readGlyph(input,i,buf,font);
+    int len=readEventGlyph(input,i,buf,font);
     int advance=eventGlyphAdvance(buf,font);
     if(used+advance>maxPixels) break;
     out+=String(buf);
@@ -124,7 +137,7 @@ String fitEventText(const String& input,int maxPixels){
   const int dotsWidth=18;
   while(i<input.length()){
     char buf[8]={0};const uint8_t* font=nullptr;
-    int len=readGlyph(input,i,buf,font);
+    int len=readEventGlyph(input,i,buf,font);
     int advance=eventGlyphAdvance(buf,font);
     if(used+advance>maxPixels-dotsWidth){out+="...";break;}
     out+=String(buf);
@@ -140,7 +153,7 @@ int drawEventText(int x,int baselineY,const String& text,uint16_t color,int maxW
   int i=0;
   while(i<text.length()){
     char buf[8]={0};const uint8_t* font=nullptr;
-    int len=readGlyph(text,i,buf,font);
+    int len=readEventGlyph(text,i,buf,font);
     int advance=eventGlyphAdvance(buf,font);
     if(cursor+advance>x+maxWidth) break;
     selectFont(font);
@@ -199,7 +212,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-v1.0.0");
+  feedBytes("layout-event14-v1");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
