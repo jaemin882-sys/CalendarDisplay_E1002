@@ -1,4 +1,5 @@
 #include "ui_layout.h"
+extern int batteryPercent;
 extern const uint8_t u8g2_font_gulim14_t_korean2[];
 // Upstream setFont resets transparency whenever the font changes.
 // Restore it on EVERY switch, including fallback/measurement calls.
