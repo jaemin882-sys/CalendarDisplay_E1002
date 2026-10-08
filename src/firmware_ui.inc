@@ -1,6 +1,6 @@
 #include "ui_layout.h"
 extern int batteryPercent;
-extern const uint8_t u8g2_font_gulim14_t_korean2[];
+
 // Upstream setFont resets transparency whenever the font changes.
 // Restore it on EVERY switch, including fallback/measurement calls.
 void selectFont(const uint8_t* font){
@@ -95,22 +95,48 @@ int takeTextLine(const String& input,int startByte,int maxPixels,String& out){
   return i;
 }
 
-int readEventGlyph(const String& text,int offset,char (&buf)[8],const uint8_t*& font){
-  int len=readGlyph(text,offset,buf,font);
-  font=u8g2_font_gulim14_t_korean2;
-  selectFont(font);
-  if(u8g2.getUTF8Width(buf)<=0){
-    font=u8g2_font_helvR10_tf;
-    selectFont(font);
-  }
-  if(u8g2.getUTF8Width(buf)<=0) strcpy(buf,"?");
-  return len;
+// Scale the same Unifont Korean2 glyph raster to 14/16 without changing
+// title/date/weekday font choices. A tiny 1-bit canvas buffers one glyph.
+GFXcanvas1 compactGlyphCanvas(24,32);
+U8G2_FOR_ADAFRUIT_GFX compactGlyphPrinter;
+bool compactGlyphReady=false;
+void initCompactGlyph(){
+  if(compactGlyphReady)return;
+  compactGlyphPrinter.begin(compactGlyphCanvas);
+  compactGlyphPrinter.setFontMode(1);
+  compactGlyphReady=true;
 }
-
+int readEventGlyph(const String& text,int offset,char (&buf)[8],const uint8_t*& font){
+  return readGlyph(text,offset,buf,font);
+}
+int compactGlyphWidth(const char* utf8,const uint8_t* font){
+  int nativeWidth=glyphWidthFor(utf8,font);
+  return max(1,(nativeWidth*14+8)/16);
+}
+void drawCompactGlyph(int x,int baselineY,const char* utf8,const uint8_t* font,uint16_t color){
+  initCompactGlyph();
+  compactGlyphCanvas.fillScreen(0);
+  compactGlyphPrinter.setFont(font);
+  compactGlyphPrinter.setFontMode(1);
+  compactGlyphPrinter.setForegroundColor(1);
+  compactGlyphPrinter.setBackgroundColor(0);
+  compactGlyphPrinter.setCursor(0,24);
+  compactGlyphPrinter.print(utf8);
+  int glyphW=min(24,glyphWidthFor(utf8,font));
+  // Nearest-neighbour downscale from 16px Unifont raster to 14px.
+  for(int sy=0;sy<32;++sy){
+    for(int sx=0;sx<glyphW;++sx){
+      if(!compactGlyphCanvas.getPixel(sx,sy))continue;
+      int dx=(sx*14)/16;
+      int dy=((sy-24)*14)/16;
+      display.drawPixel(x+dx,baselineY+dy,color);
+    }
+  }
+}
 static constexpr int EVENT_TRACKING=-1;
 
 int eventGlyphAdvance(const char* utf8,const uint8_t* font){
-  return max(1,glyphWidthFor(utf8,font)+EVENT_TRACKING);
+  return max(1,compactGlyphWidth(utf8,font)+EVENT_TRACKING);
 }
 
 int takeEventTextLine(const String& input,int startByte,int maxPixels,String& out){
@@ -157,9 +183,7 @@ int drawEventText(int x,int baselineY,const String& text,uint16_t color,int maxW
     int len=readEventGlyph(text,i,buf,font);
     int advance=eventGlyphAdvance(buf,font);
     if(cursor+advance>x+maxWidth) break;
-    selectFont(font);
-    u8g2.setCursor(cursor,baselineY);
-    u8g2.print(buf);
+    drawCompactGlyph(cursor,baselineY,buf,font,color);
     cursor+=advance;
     i+=len;
   }
@@ -213,7 +237,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-event14-v1");
+  feedBytes("layout-unifont14-v2");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
@@ -324,7 +348,7 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
       u8g2.setCursor(x+5,y+15);u8g2.print(dayText);
       if(holiday.length()){
         int hx=x+5+dateWidth+4;
-        drawUtf8Korean(hx,y+15,fitText(holiday,CELL_W-(hx-x)-5),C_RED,CELL_W-(hx-x)-5);
+        drawEventText(hx,y+15,fitEventText(holiday,CELL_W-(hx-x)-5),C_RED,CELL_W-(hx-x)-5);
       }
       int dayEventIndices[3];
       int dayEventCount=0;
