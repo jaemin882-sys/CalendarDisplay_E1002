@@ -5,6 +5,7 @@ using std::min;using std::max;
 #define CUSTOM_MEMO_TEXT "온이네집"
 constexpr uint16_t C_WHITE=0xffff,C_BLACK=0,C_RED=0xf800,C_BLUE=0x001f,C_GREEN=0x07e0;
 constexpr uint8_t HOLIDAY_FEED_INDEX=4;
+int batteryPercent=-1;
 Adafruit_GFX display;
 U8G2_FOR_ADAFRUIT_GFX u8g2;
 #include "../src/firmware_ui.inc"
