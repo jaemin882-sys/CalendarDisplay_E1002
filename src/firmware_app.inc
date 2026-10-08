@@ -1,4 +1,39 @@
 static bool displayInitialized=false;
+int batteryPercent=-1;
+int batteryMilliVolts=0;
+
+int estimateBatteryPercent(int mv){
+  // Approximate Li-ion resting-voltage curve; voltage is not an exact SOC meter.
+  const int voltage[]={3270,3410,3490,3580,3680,3750,3800,3850,3910,3960,4150};
+  const int percent[]={0,10,20,30,40,50,60,70,80,90,100};
+  if(mv<=voltage[0]) return 0;
+  if(mv>=voltage[10]) return 100;
+  for(int i=1;i<11;++i){
+    if(mv<=voltage[i])
+      return percent[i-1]+(mv-voltage[i-1])*(percent[i]-percent[i-1])/(voltage[i]-voltage[i-1]);
+  }
+  return 100;
+}
+void measureBattery(){
+  analogReadResolution(12);
+  analogSetPinAttenuation(1,ADC_11db);
+  pinMode(21,OUTPUT);
+  digitalWrite(21,HIGH);
+  delay(15);
+  analogReadMilliVolts(1); // Discard first ADC reading.
+  uint32_t total=0;
+  for(int i=0;i<8;++i){total+=(uint32_t)analogReadMilliVolts(1);delay(2);}
+  digitalWrite(21,LOW);
+  batteryMilliVolts=(int)(total/8)*2;
+  if(batteryMilliVolts>=2800 && batteryMilliVolts<=4500){
+    batteryPercent=estimateBatteryPercent(batteryMilliVolts);
+    Serial.printf("Battery estimate: %d mV, %d%% (USB/charging may affect accuracy)\n",batteryMilliVolts,batteryPercent);
+  }else{
+    batteryPercent=-1;
+    Serial.printf("Battery measurement unavailable: %d mV\n",batteryMilliVolts);
+  }
+}
+
 void initDisplay(){
   if(displayInitialized) return;
   pinMode(EPD_RES_PIN,OUTPUT);pinMode(EPD_DC_PIN,OUTPUT);pinMode(EPD_CS_PIN,OUTPUT);
@@ -55,6 +90,7 @@ void setup(){
   rtc_gpio_deinit((gpio_num_t)SYNC_BUTTON_PIN);
   pinMode(SYNC_BUTTON_PIN,INPUT_PULLUP);quietPeripherals();
   setenv("TZ",TZ_INFO,1);tzset();
+  measureBattery();
   auto cause=esp_sleep_get_wakeup_cause();
   bool manualWake=cause==ESP_SLEEP_WAKEUP_EXT1;
   Serial.printf("CalendarDisplay v1.0.0: %s wake; PSRAM %u\n",manualWake?"KEY0":(cause==ESP_SLEEP_WAKEUP_TIMER?"timer":"power/reset"),ESP.getPsramSize());
@@ -90,6 +126,8 @@ void setup(){
     now.tm_hour=0;now.tm_min=0;now.tm_sec=0;now.tm_isdst=-1;
     time_t today=mktime(&now),ws=0,we=0;displayWindow(ws,we);
     uint32_t hash=computeRenderHash(ws,today,holidayFresh);
+    // Update display only when the estimate changes meaningfully (5% buckets).
+    hash^=(uint32_t)(batteryPercent<0?255:batteryPercent/5)*16777619u;
     if(manualWake || !hadCalendar || prefs.getUInt("renderHash",0)!=hash){
       initDisplay();drawCalendarPage(today,holidayFresh);
       if(digitalRead(EPD_BUSY_PIN)==HIGH){
