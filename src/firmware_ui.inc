@@ -324,30 +324,52 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     u8g2.setCursor(10,23);
     u8g2.print(title);
 
+    // Header has three independent alignment zones:
+    // left: date range + household memo, center: next D-Day, right: battery.
+    const int LEFT_END=352;
+    const int CENTER_LEFT=360;
+    const int CENTER_RIGHT=694;
+    const int RIGHT_EDGE=790;
     int titleWidth=u8g2.getUTF8Width(title);
-    int memoX=10+titleWidth+18;
-    // Reserve 545..716 for the nearest family D-Day and 731+ for battery.
-    drawUtf8Korean(memoX,23,fitText(String(CUSTOM_MEMO_TEXT),530-memoX),C_BLACK,530-memoX);
+    int memoX=10+titleWidth+12;
+    int memoWidth=max(0,LEFT_END-memoX);
+    if(memoWidth>0)
+      drawUtf8Korean(memoX,23,fitText(String(CUSTOM_MEMO_TEXT),memoWidth),C_BLACK,memoWidth);
+
     String anniversaryName;
     int daysRemaining=0;
     if(upcomingAnniversary(todayMidnight,anniversaryName,daysRemaining)){
       String countdown=daysRemaining==0?String("D-DAY"):String("D-")+String(daysRemaining);
       selectFont(u8g2_font_helvB10_tf);
       int countdownWidth=u8g2.getUTF8Width(countdown.c_str());
-      const int countdownX=716-countdownWidth;
-      drawUtf8Korean(540,23,fitText(anniversaryName,countdownX-548),C_BLACK,countdownX-548);
+      const int spacing=6;
+      const int centerWidth=CENTER_RIGHT-CENTER_LEFT;
+      const int nameMax=max(0,centerWidth-countdownWidth-spacing);
+      String shortName=fitText(anniversaryName,nameMax);
+      int nameWidth=0;
+      int idx=0;
+      while(idx<shortName.length()){
+        char buf[8]={0};const uint8_t* font=nullptr;
+        int len=readGlyph(shortName,idx,buf,font);
+        nameWidth+=glyphWidthFor(buf,font);
+        idx+=len;
+      }
+      const int groupWidth=nameWidth+spacing+countdownWidth;
+      int groupX=CENTER_LEFT+(centerWidth-groupWidth)/2;
+      drawUtf8Korean(groupX,23,shortName,C_BLACK,nameMax);
       selectFont(u8g2_font_helvB10_tf);
       u8g2.setForegroundColor(C_BLACK);
-      u8g2.setCursor(countdownX,23);
+      u8g2.setCursor(groupX+nameWidth+spacing,23);
       u8g2.print(countdown);
     }
+
     if(batteryPercent>=0){
-      // Top-right compact status, away from date cells.
       char batteryText[12];
       snprintf(batteryText,sizeof(batteryText),"%d%%",batteryPercent);
       selectFont(u8g2_font_helvB10_tf);
+      int batteryWidth=u8g2.getUTF8Width(batteryText);
       u8g2.setForegroundColor(C_BLACK);
-      u8g2.setCursor(731,23);
+      u8g2.setCursor(RIGHT_EDGE-batteryWidth,23);
       u8g2.print(batteryText);
     }
     // Small marker means holiday source stale/unavailable, not personal failure.
