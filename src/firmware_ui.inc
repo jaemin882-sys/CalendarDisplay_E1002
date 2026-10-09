@@ -227,6 +227,46 @@ String holidayNameForDay(time_t dayStart){
   return name;
 }
 
+// Annual household reminders. Feb 29 only occurs in leap years.
+struct FamilyAnniversary { const char* label; int month; int day; };
+static const FamilyAnniversary familyAnniversaries[]={
+  {"아빠생일",2,29},
+  {"엄마생일",12,3},
+  {"아기생일",10,28},
+  {"결혼기념일",10,15},
+};
+bool isLeapYear(int year){
+  return year%400==0 || (year%4==0 && year%100!=0);
+}
+bool upcomingAnniversary(time_t today,String& label,int& remainingDays){
+  struct tm now={};
+  localtime_r(&today,&now);
+  remainingDays=99999;
+  bool found=false;
+  for(const auto& item:familyAnniversaries){
+    for(int year=now.tm_year+1900;year<=now.tm_year+1908;++year){
+      if(item.month==2 && item.day==29 && !isLeapYear(year))continue;
+      struct tm anniversary={};
+      anniversary.tm_year=year-1900;
+      anniversary.tm_mon=item.month-1;
+      anniversary.tm_mday=item.day;
+      anniversary.tm_hour=12;
+      anniversary.tm_isdst=-1;
+      time_t target=mktime(&anniversary);
+      // Compare local calendar dates (Korea has no DST).
+      int diff=(int)((target-today)/86400);
+      if(diff<0)continue;
+      if(diff<remainingDays){
+        remainingDays=diff;
+        label=item.label;
+        found=true;
+      }
+      break;
+    }
+  }
+  return found;
+}
+
 uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayFresh){
   uint32_t h=2166136261u;
   auto feedBytes=[&](const String& s){
@@ -237,7 +277,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-unifont14-v2");
+  feedBytes("layout-unifont14-dday-v3");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
@@ -285,7 +325,22 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     u8g2.print(title);
 
     int titleWidth=u8g2.getUTF8Width(title);
-    drawUtf8Korean(10+titleWidth+18,23,fitText(String(CUSTOM_MEMO_TEXT),650-titleWidth-18),C_BLACK,650-titleWidth-18);
+    int memoX=10+titleWidth+18;
+    // Reserve 545..716 for the nearest family D-Day and 731+ for battery.
+    drawUtf8Korean(memoX,23,fitText(String(CUSTOM_MEMO_TEXT),530-memoX),C_BLACK,530-memoX);
+    String anniversaryName;
+    int daysRemaining=0;
+    if(upcomingAnniversary(todayMidnight,anniversaryName,daysRemaining)){
+      String countdown=daysRemaining==0?String("D-DAY"):String("D-")+String(daysRemaining);
+      selectFont(u8g2_font_helvB10_tf);
+      int countdownWidth=u8g2.getUTF8Width(countdown.c_str());
+      const int countdownX=716-countdownWidth;
+      drawUtf8Korean(540,23,fitText(anniversaryName,countdownX-548),C_BLACK,countdownX-548);
+      selectFont(u8g2_font_helvB10_tf);
+      u8g2.setForegroundColor(C_BLACK);
+      u8g2.setCursor(countdownX,23);
+      u8g2.print(countdown);
+    }
     if(batteryPercent>=0){
       // Top-right compact status, away from date cells.
       char batteryText[12];
