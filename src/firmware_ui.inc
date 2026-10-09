@@ -238,12 +238,12 @@ static const FamilyAnniversary familyAnniversaries[]={
 bool isLeapYear(int year){
   return year%400==0 || (year%4==0 && year%100!=0);
 }
-bool upcomingAnniversary(time_t today,String& label,int& remainingDays){
+int upcomingAnniversaries(time_t today,String labels[2],int days[2]){
   struct tm now={};
   localtime_r(&today,&now);
-  remainingDays=99999;
-  bool found=false;
+  int count=0;
   for(const auto& item:familyAnniversaries){
+    int nextDays=99999;
     for(int year=now.tm_year+1900;year<=now.tm_year+1908;++year){
       if(item.month==2 && item.day==29 && !isLeapYear(year))continue;
       struct tm anniversary={};
@@ -253,18 +253,26 @@ bool upcomingAnniversary(time_t today,String& label,int& remainingDays){
       anniversary.tm_hour=12;
       anniversary.tm_isdst=-1;
       time_t target=mktime(&anniversary);
-      // Compare local calendar dates (Korea has no DST).
       int diff=(int)((target-today)/86400);
       if(diff<0)continue;
-      if(diff<remainingDays){
-        remainingDays=diff;
-        label=item.label;
-        found=true;
-      }
+      nextDays=diff;
       break;
     }
+    if(nextDays==99999)continue;
+    int pos=count;
+    for(int i=0;i<count;++i){
+      if(nextDays<days[i]){pos=i;break;}
+    }
+    if(pos>=2)continue;
+    if(count<2)++count;
+    for(int i=count-1;i>pos;--i){
+      labels[i]=labels[i-1];
+      days[i]=days[i-1];
+    }
+    labels[pos]=item.label;
+    days[pos]=nextDays;
   }
-  return found;
+  return count;
 }
 
 uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayFresh){
@@ -277,7 +285,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-unifont14-dday-center-v4");
+  feedBytes("layout-unifont14-dday-two-v5");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
@@ -326,10 +334,10 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
 
     // Header has three independent alignment zones:
     // left: date range + household memo, center: next D-Day, right: battery.
-    const int LEFT_END=290;
+    const int LEFT_END=280;
     // Center the whole D-Day label on the 800px panel (x=400).
-    const int CENTER_LEFT=294;
-    const int CENTER_RIGHT=506;
+    const int CENTER_LEFT=284;
+    const int CENTER_RIGHT=716;
     const int RIGHT_EDGE=790;
     int titleWidth=u8g2.getUTF8Width(title);
     int memoX=10+titleWidth+12;
@@ -337,31 +345,32 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     if(memoWidth>0)
       drawUtf8Korean(memoX,23,fitText(String(CUSTOM_MEMO_TEXT),memoWidth),C_BLACK,memoWidth);
 
-    String anniversaryName;
-    int daysRemaining=0;
-    if(upcomingAnniversary(todayMidnight,anniversaryName,daysRemaining)){
-      String countdown=daysRemaining==0?String("D-DAY"):String("D-")+String(daysRemaining);
-      selectFont(u8g2_font_helvB10_tf);
-      int countdownWidth=u8g2.getUTF8Width(countdown.c_str());
-      const int spacing=6;
-      const int centerWidth=CENTER_RIGHT-CENTER_LEFT;
-      const int nameMax=max(0,centerWidth-countdownWidth-spacing);
-      String shortName=fitText(anniversaryName,nameMax);
-      int nameWidth=0;
-      int idx=0;
-      while(idx<shortName.length()){
-        char buf[8]={0};const uint8_t* font=nullptr;
-        int len=readGlyph(shortName,idx,buf,font);
-        nameWidth+=glyphWidthFor(buf,font);
-        idx+=len;
+    String ddayLabels[2];
+    int ddayDays[2]={0,0};
+    int ddayCount=upcomingAnniversaries(todayMidnight,ddayLabels,ddayDays);
+    if(ddayCount>0){
+      // Two compact labels, kept together and centered as one group.
+      String chunks[2];
+      int chunkWidths[2]={0,0};
+      for(int n=0;n<ddayCount;++n){
+        String countdown=ddayDays[n]==0?String("D-DAY"):String("D-")+String(ddayDays[n]);
+        chunks[n]=ddayLabels[n]+String(" ")+countdown;
+        int k=0;
+        while(k<chunks[n].length()){
+          char buf[8]={0};const uint8_t* font=nullptr;
+          int len=readGlyph(chunks[n],k,buf,font);
+          chunkWidths[n]+=glyphWidthFor(buf,font);
+          k+=len;
+        }
       }
-      const int groupWidth=nameWidth+spacing+countdownWidth;
-      int groupX=CENTER_LEFT+(centerWidth-groupWidth)/2;
-      drawUtf8Korean(groupX,23,shortName,C_BLACK,nameMax);
-      selectFont(u8g2_font_helvB10_tf);
-      u8g2.setForegroundColor(C_BLACK);
-      u8g2.setCursor(groupX+nameWidth+spacing,23);
-      u8g2.print(countdown);
+      const int groupGap=12;
+      const int fullWidth=chunkWidths[0]+(ddayCount>1?groupGap+chunkWidths[1]:0);
+      const int maxWidth=CENTER_RIGHT-CENTER_LEFT;
+      int x=CENTER_LEFT+(maxWidth-fullWidth)/2;
+      for(int n=0;n<ddayCount;++n){
+        drawUtf8Korean(x,23,chunks[n],C_BLACK,chunkWidths[n]+1);
+        x+=chunkWidths[n]+groupGap;
+      }
     }
 
     if(batteryPercent>=0){
