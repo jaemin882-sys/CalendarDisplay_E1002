@@ -337,7 +337,7 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
     const int LEFT_END=280;
     // Center the whole D-Day label on the 800px panel (x=400).
     const int CENTER_LEFT=284;
-    const int CENTER_RIGHT=716;
+    const int CENTER_RIGHT=516;
     const int RIGHT_EDGE=790;
     int titleWidth=u8g2.getUTF8Width(title);
     int memoX=10+titleWidth+12;
