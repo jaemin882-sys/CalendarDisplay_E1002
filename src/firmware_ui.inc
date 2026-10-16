@@ -250,10 +250,11 @@ int upcomingAnniversaries(time_t today,String labels[2],int days[2]){
       anniversary.tm_year=year-1900;
       anniversary.tm_mon=item.month-1;
       anniversary.tm_mday=item.day;
-      anniversary.tm_hour=12;
+      anniversary.tm_hour=0;
       anniversary.tm_isdst=-1;
       time_t target=mktime(&anniversary);
-      int diff=(int)((target-today)/86400);
+      // Compare local midnights so yesterday is never shown as D-DAY.
+      int diff=(int)round(difftime(target,today)/86400.0);
       if(diff<0)continue;
       nextDays=diff;
       break;
@@ -285,7 +286,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-unifont14-dday-two-v5");
+  feedBytes("layout-unifont14-dday-datefix-v6");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
