@@ -63,7 +63,7 @@ void collectReminder(const String& title,time_t start,const String& rule,
   String untilStr=rrulePart(rule,"UNTIL");bool ad=false;
   time_t until=untilStr.isEmpty()?0:parseIcsDateTime(untilStr,&ad);
   if(ad && until)until+=86399;
-  for(int year=max(now.tm_year+1900,original.tm_year+1900);
+  for(int year=std::max(now.tm_year+1900,original.tm_year+1900);
       year<=now.tm_year+1908;++year){
     int years=year-(original.tm_year+1900);
     if(years%interval)continue;
