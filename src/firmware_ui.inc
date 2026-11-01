@@ -227,51 +227,14 @@ String holidayNameForDay(time_t dayStart){
   return name;
 }
 
-// Annual household reminders. Feb 29 only occurs in leap years.
-struct FamilyAnniversary { const char* label; int month; int day; };
-static const FamilyAnniversary familyAnniversaries[]={
-  {"아빠생일",2,29},
-  {"엄마생일",12,3},
-  {"아기생일",10,28},
-  {"결혼기념일",10,15},
-};
-bool isLeapYear(int year){
-  return year%400==0 || (year%4==0 && year%100!=0);
-}
+// D-Day candidates are extracted from the actual iCloud feeds by firmware_ics.inc.
 int upcomingAnniversaries(time_t today,String labels[2],int days[2]){
-  struct tm now={};
-  localtime_r(&today,&now);
   int count=0;
-  for(const auto& item:familyAnniversaries){
-    int nextDays=99999;
-    for(int year=now.tm_year+1900;year<=now.tm_year+1908;++year){
-      if(item.month==2 && item.day==29 && !isLeapYear(year))continue;
-      struct tm anniversary={};
-      anniversary.tm_year=year-1900;
-      anniversary.tm_mon=item.month-1;
-      anniversary.tm_mday=item.day;
-      anniversary.tm_hour=0;
-      anniversary.tm_isdst=-1;
-      time_t target=mktime(&anniversary);
-      // Compare local midnights so yesterday is never shown as D-DAY.
-      int diff=(int)round(difftime(target,today)/86400.0);
-      if(diff<0)continue;
-      nextDays=diff;
-      break;
-    }
-    if(nextDays==99999)continue;
-    int pos=count;
-    for(int i=0;i<count;++i){
-      if(nextDays<days[i]){pos=i;break;}
-    }
-    if(pos>=2)continue;
-    if(count<2)++count;
-    for(int i=count-1;i>pos;--i){
-      labels[i]=labels[i-1];
-      days[i]=days[i-1];
-    }
-    labels[pos]=item.label;
-    days[pos]=nextDays;
+  for(int i=0;i<upcomingReminderCount && count<2;++i){
+    if(upcomingReminders[i].day<today)continue;
+    labels[count]=upcomingReminders[i].label;
+    days[count]=(int)((upcomingReminders[i].day-today)/86400);
+    ++count;
   }
   return count;
 }
@@ -286,7 +249,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-unifont14-dday-datefix-v6");
+  feedBytes("layout-icloud-dday-v7");
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
