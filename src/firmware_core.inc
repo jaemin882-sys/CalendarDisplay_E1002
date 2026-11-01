@@ -15,6 +15,9 @@
 #include <GxEPD2_7C.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
+// E1002 CH340 USB-UART uses GPIO43 TX / GPIO44 RX (Serial1).
+// Route firmware diagnostics through the same COM port as the ROM boot log.
+#define Serial Serial1
 static_assert(AUTO_SYNC_HOURS>=1 && AUTO_SYNC_HOURS<=168,"AUTO_SYNC_HOURS must be 1..168");
 
 #define EPD_SCK_PIN 7
