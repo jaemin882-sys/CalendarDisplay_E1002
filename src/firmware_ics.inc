@@ -16,6 +16,70 @@ int weekdayCode(const String& code){
   for(int i=0;i<7;++i) if(code==days[i]) return i;
   return -1;
 }
+// Upcoming reminders are tracked separately from the six-week display window.
+struct UpcomingReminder { time_t day=0; String label; };
+static UpcomingReminder upcomingReminders[2];
+static int upcomingReminderCount=0;
+
+bool isReminderTitle(const String& title){
+  return title.indexOf("생일")>=0 || title.indexOf("생신")>=0 ||
+         title.indexOf("기념일")>=0;
+}
+time_t midnightFor(time_t t){
+  struct tm d={};localtime_r(&t,&d);
+  d.tm_hour=0;d.tm_min=0;d.tm_sec=0;d.tm_isdst=-1;
+  return mktime(&d);
+}
+void addUpcomingReminder(const String& label,time_t date,time_t today){
+  time_t day=midnightFor(date);
+  if(day<today) return;
+  for(int i=0;i<upcomingReminderCount;++i)
+    if(upcomingReminders[i].day==day && upcomingReminders[i].label==label) return;
+  int pos=upcomingReminderCount;
+  for(int i=0;i<upcomingReminderCount;++i)
+    if(day<upcomingReminders[i].day){pos=i;break;}
+  if(pos>=2)return;
+  if(upcomingReminderCount<2)++upcomingReminderCount;
+  for(int j=upcomingReminderCount-1;j>pos;--j)
+    upcomingReminders[j]=upcomingReminders[j-1];
+  upcomingReminders[pos].day=day;
+  upcomingReminders[pos].label=label;
+}
+void collectReminder(const String& title,time_t start,const String& rule,
+                     bool isCancelled,time_t today){
+  if(isCancelled || !isReminderTitle(title) || start==0)return;
+  if(rule.isEmpty()){
+    addUpcomingReminder(title,start,today);
+    return;
+  }
+  // D-Day uses exact yearly repeats; more complex repeat rules stay in the grid.
+  if(rrulePart(rule,"FREQ")!="YEARLY")return;
+  if(!rrulePart(rule,"BYDAY").isEmpty() || !rrulePart(rule,"BYMONTHDAY").isEmpty() ||
+     !rrulePart(rule,"BYMONTH").isEmpty())return;
+  struct tm original={};localtime_r(&start,&original);
+  struct tm now={};localtime_r(&today,&now);
+  int interval=rrulePart(rule,"INTERVAL").toInt();if(interval<1)interval=1;
+  int count=rrulePart(rule,"COUNT").toInt();
+  String untilStr=rrulePart(rule,"UNTIL");bool ad=false;
+  time_t until=untilStr.isEmpty()?0:parseIcsDateTime(untilStr,&ad);
+  if(ad && until)until+=86399;
+  for(int year=max(now.tm_year+1900,original.tm_year+1900);
+      year<=now.tm_year+1908;++year){
+    int years=year-(original.tm_year+1900);
+    if(years%interval)continue;
+    if(count>0 && years/interval>=count)break;
+    struct tm date=original;
+    date.tm_year=year-1900;date.tm_isdst=-1;
+    time_t candidate=mktime(&date);
+    struct tm valid={};localtime_r(&candidate,&valid);
+    if(valid.tm_year!=year-1900 || valid.tm_mon!=original.tm_mon ||
+       valid.tm_mday!=original.tm_mday)continue;
+    if(until && candidate>until)break;
+    if(midnightFor(candidate)<today)continue;
+    addUpcomingReminder(title,candidate,today);
+    break;
+  }
+}
 struct IcsRecord {
   CalendarEvent event;
   String uid,rule;
@@ -159,6 +223,8 @@ void emitRecurringEvent(const IcsRecord& record){
 
 bool parseIcsText(const char* raw,uint8_t feedIndex){
   int before=eventCount;
+  UpcomingReminder savedReminders[2]={upcomingReminders[0],upcomingReminders[1]};
+  int savedReminderCount=upcomingReminderCount;
   parseOk=true;overrides.clear();
   displayWindow(parseWindowStart,parseWindowEnd);
   // Pass 0 records detached exceptions even if they appear after their master.
@@ -191,6 +257,11 @@ bool parseIcsText(const char* raw,uint8_t feedIndex){
           if(!current.hasStart){parseOk=false;return;}
           if(!current.hasEnd) current.event.end=current.event.start+(current.event.allDay?86400:1);
           if(current.event.end<current.event.start){parseOk=false;return;}
+          if(feedIndex<4 && !current.recurrence){
+            time_t now=time(nullptr);
+            collectReminder(current.event.summary,current.event.start,current.rule,
+                            current.cancelled,midnightFor(now));
+          }
           if(current.recurrence) appendOccurrence(current.event,current.event.start,std::max((time_t)1,current.event.end-current.event.start));
           else emitRecurringEvent(current);
         }
@@ -242,6 +313,8 @@ bool parseIcsText(const char* raw,uint8_t feedIndex){
   overrides.clear();
   if(!parseOk){
     while(eventCount>before) events[--eventCount]=CalendarEvent();
+    upcomingReminders[0]=savedReminders[0];upcomingReminders[1]=savedReminders[1];
+    upcomingReminderCount=savedReminderCount;
     Serial.printf("Feed %u rejected: malformed/unsupported ICS or capacity exceeded.\n",feedIndex+1);
   }
   return parseOk;
