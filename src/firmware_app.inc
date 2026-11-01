@@ -86,7 +86,9 @@ void saveHolidayCache(){
   if(data.length()<=32768 && data!=prefs.getString("holidays","")) prefs.putString("holidays",data);
 }
 void setup(){
-  Serial.begin(115200);delay(300);
+  Serial.begin(115200,SERIAL_8N1,44,43);
+  delay(300);
+  Serial.println("[BOOT] E1002 CH340 UART diagnostic enabled");
   rtc_gpio_deinit((gpio_num_t)SYNC_BUTTON_PIN);
   pinMode(SYNC_BUTTON_PIN,INPUT_PULLUP);quietPeripherals();
   setenv("TZ",TZ_INFO,1);tzset();
@@ -101,8 +103,11 @@ void setup(){
     if(!hadCalendar){initDisplay();drawStatusPage("Setup required","Wi-Fi / iCloud 설정이 필요합니다.","src/config.h 설정 후 다시 업로드하세요.",C_YELLOW);}
     prefs.end();sleepFor24hOrButton();return;
   }
+  Serial.println("[SYNC] Connecting Wi-Fi...");
   bool wifiOk=connectWiFi();
+  Serial.printf("[SYNC] Wi-Fi %s\n",wifiOk?"connected":"failed");
   bool clockOk=wifiOk && syncClock();
+  Serial.printf("[SYNC] Clock %s\n",clockOk?"ready":"failed");
   bool dataOk=wifiOk && clockOk,holidayFresh=false;
   if(dataOk){
     for(uint8_t i=0;i<HOLIDAY_FEED_INDEX;++i){
@@ -128,7 +133,10 @@ void setup(){
     uint32_t hash=computeRenderHash(ws,today,holidayFresh);
     // Update display only when the estimate changes meaningfully (5% buckets).
     hash^=(uint32_t)(batteryPercent<0?255:batteryPercent/5)*16777619u;
+    Serial.printf("[DISPLAY] manual=%d prior=%d hash_old=%08x hash_new=%08x\n",manualWake,hadCalendar,(unsigned)prefs.getUInt("renderHash",0),(unsigned)hash);
     if(manualWake || !hadCalendar || prefs.getUInt("renderHash",0)!=hash){
+      Serial.println("[DISPLAY] Starting full refresh");
+      Serial.flush();
       initDisplay();drawCalendarPage(today,holidayFresh);
       if(digitalRead(EPD_BUSY_PIN)==HIGH){
         prefs.putUInt("renderHash",hash);prefs.putBool("hasCalendar",true);
