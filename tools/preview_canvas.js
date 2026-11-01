@@ -30,6 +30,7 @@ for(let r=0;r<=6;r++)ctx.fillRect(left,top+r*rh,right-left+1,1);
 for(let slot=0;slot<42;slot++){
  let date=new Date(p.start+'T00:00:00Z');date.setUTCDate(date.getUTCDate()+slot);
  const key=date.toISOString().slice(0,10),col=slot%7,x=left+col*cw,y=top+Math.floor(slot/7)*rh;
+ if(slot>0&&date.getUTCDate()===1){ctx.fillStyle=black;if(col===0)ctx.fillRect(left,y-1,right-left+1,3);else ctx.fillRect(x-1,y,3,rh+1);}
  if(key===p.today){rect(x+2,y+2,cw-4,rh-4,red);rect(x+3,y+3,cw-6,rh-6,red);}
  const hs=(p.holidays[key]||[]).join('·'),day=date.getUTCDate(),ds=(day===1||slot===0)?`${date.getUTCMonth()+1}/${day}`:String(day);
  text(ds,x+5,y+15,hs||col===0?red:col===6?blue:black,'day');
