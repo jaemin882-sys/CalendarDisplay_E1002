@@ -250,6 +250,10 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
   feedBytes("layout-icloud-dday-v7");
+  for(int i=0;i<upcomingReminderCount;++i){
+    feedBytes(upcomingReminders[i].label);
+    feedBytes(String((long long)upcomingReminders[i].day));
+  }
   h^=holidayFresh?1:0;
 
   for(int i=0;i<eventCount;++i){
