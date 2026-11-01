@@ -249,7 +249,7 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-icloud-dday-v7");
+  feedBytes("layout-icloud-dday-month-divider-v8");
   for(int i=0;i<upcomingReminderCount;++i){
     feedBytes(upcomingReminders[i].label);
     feedBytes(String((long long)upcomingReminders[i].day));
@@ -383,6 +383,14 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
 
       struct tm cellTm={};
       localtime_r(&cellStart,&cellTm);
+
+      // Highlight the actual boundary between calendar months.
+      // A month beginning on Sunday gets a full-width horizontal divider;
+      // otherwise only the vertical edge immediately before day 1 is bold.
+      if(slot>0 && cellTm.tm_mday==1){
+        if(col==0) display.fillRect(LEFT,y-1,RIGHT-LEFT+1,3,C_BLACK);
+        else display.fillRect(x-1,y,3,ROW_H+1,C_BLACK);
+      }
 
       if(cellStart==todayMidnight){
         display.drawRect(x+2,y+2,CELL_W-4,ROW_H-4,C_RED);
