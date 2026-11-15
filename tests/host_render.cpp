@@ -30,7 +30,8 @@ int main(int argc,char** argv){
  if(!parseIcsText(raw.c_str(),0))return 1;
  if(argc>3){std::ifstream h(argv[3]);std::string holidays((std::istreambuf_iterator<char>(h)),{});if(!parseIcsText(holidays.c_str(),4))return 1;}
  sortEvents();u8g2.begin(display);u8g2.setFontMode(1);u8g2.setFontDirection(0);
- drawCalendarPage(today,true);
+ if(argc>8 && std::string(argv[8])=="guest")drawGuestPage(today,true);
+ else drawCalendarPage(today,true);
  std::ofstream out(argv[2],std::ios::binary);out<<"P6\n800 480\n255\n";
  for(auto& row:display.pixels)for(auto p:row){char rgb[3]={(char)((p>>11)*255/31),(char)(((p>>5)&63)*255/63),(char)((p&31)*255/31)};out.write(rgb,3);}
  return 0;
