@@ -116,6 +116,71 @@ void syncWeather(bool wifiOk,bool clockOk){
   weatherCache=next;
   Serial.printf("Weather: %u cached days; NVS %s\n",next.count,same?"unchanged":"updated");
 }
+
+// Guest D-Day fallback contains ONLY the two public reminders, never private
+// appointments. It lets KEY0 hide the calendar before any Wi-Fi work.
+time_t validLocalMidnight(){
+  time_t now=time(nullptr);
+  return now>=1704067200?midnightFor(now):0;
+}
+void saveGuestReminders(){
+  String content="v1\n";
+  for(int i=0;i<upcomingReminderCount && i<2;++i){
+    String label=upcomingReminders[i].label;
+    label.replace("\n"," ");label.replace("\r"," ");label.replace("\t"," ");
+    content+=String((long long)upcomingReminders[i].day)+"\t"+label+"\n";
+  }
+  if(content.length()<=750 && content!=prefs.getString("guestDdays",""))
+    prefs.putString("guestDdays",content);
+}
+void restoreGuestReminders(time_t today){
+  if(today<=0)return; // Unknown RTC: never invent D-Day countdowns.
+  String content=prefs.getString("guestDdays","");
+  if(content.length()>750 || !content.startsWith("v1\n"))return;
+  int pos=3;
+  while(pos<(int)content.length()){
+    int end=content.indexOf('\n',pos);
+    if(end<0)break;
+    String line=content.substring(pos,end);pos=end+1;
+    int tab=line.indexOf('\t');if(tab<=0)continue;
+    time_t when=(time_t)atoll(line.substring(0,tab).c_str());
+    String label=line.substring(tab+1);
+    if(label.isEmpty() || when<today || when>today+(time_t)366*9*86400)continue;
+    addUpcomingReminder(label,when,today);
+  }
+}
+Key0Action readKey0Action(bool keyWake){
+  if(!keyWake)return Key0Action::Auto;
+  // KEY0 is already debounced electrically by EXT1 wake. Measure residual
+  // hold after boot (boot consumes ~300 ms), before Wi-Fi or e-paper work.
+  uint32_t started=millis();
+  while(digitalRead(SYNC_BUTTON_PIN)==LOW && millis()-started<KEY0_MODE_HOLD_MS)
+    delay(15);
+  bool longHold=digitalRead(SYNC_BUTTON_PIN)==LOW;
+  Key0Action action=classifyKey0(true,longHold);
+  Serial.println(action==Key0Action::SwitchMode?
+                 "[KEY0] Long press: switch display mode":
+                 "[KEY0] Short press: refresh current mode");
+  return action;
+}
+void renderGuestIfChanged(bool force,bool hadDisplay,bool dataFresh){
+  time_t today=validLocalMidnight();
+  uint32_t hash=computeGuestRenderHash(today);
+  hash^=(uint32_t)(batteryPercent<0?255:batteryPercent/5)*16777619u;
+  if(!dataFresh)hash^=0x2fa819e5u; // The bottom-left OFFLINE marker is visible.
+  uint32_t oldHash=prefs.getUInt("renderHash",0);
+  Serial.printf("[GUEST] fresh=%d force=%d hash_old=%08x hash_new=%08x\n",
+                dataFresh,force,(unsigned)oldHash,(unsigned)hash);
+  if(force || !hadDisplay || oldHash!=hash){
+    Serial.println("[GUEST] Rendering private-event-free dashboard");
+    Serial.flush();
+    initDisplay();drawGuestPage(today,dataFresh);
+    if(digitalRead(EPD_BUSY_PIN)==HIGH){
+      prefs.putUInt("renderHash",hash);prefs.putBool("hasCalendar",true);
+    }else Serial.println("[GUEST] Panel BUSY; render hash not committed");
+  }else Serial.println("[GUEST] Same image; refresh skipped");
+}
+
 void setup(){
   Serial.begin(115200,SERIAL_8N1,44,43);
   delay(300);
@@ -126,13 +191,33 @@ void setup(){
   measureBattery();
   auto cause=esp_sleep_get_wakeup_cause();
   bool manualWake=cause==ESP_SLEEP_WAKEUP_EXT1;
+  Key0Action keyAction=readKey0Action(manualWake);
   Serial.printf("CalendarDisplay v1.0.0: %s wake; PSRAM %u\n",manualWake?"KEY0":(cause==ESP_SLEEP_WAKEUP_TIMER?"timer":"power/reset"),ESP.getPsramSize());
   prefs.begin("caldisplay",false);
+  bool guestMode=prefs.getBool("guestMode",false);
+  if(keyAction==Key0Action::SwitchMode){
+    guestMode=guestModeAfterAction(guestMode,keyAction);
+    if(!prefs.putBool("guestMode",guestMode))
+      Serial.println("[GUEST] Mode save failed; retry persistence on next wake");
+    Serial.printf("[GUEST] Mode changed to %s\n",guestMode?"guest":"calendar");
+  }
   loadWeatherCache();
   bool hadCalendar=prefs.getBool("hasCalendar",false) || prefs.getUInt("renderHash",0)!=0;
+  // On entering guest mode, hide the private calendar BEFORE attempting network.
+  // Persisted weather and the two D-Days are enough to render immediately.
+  if(keyAction==Key0Action::SwitchMode && guestMode){
+    restoreGuestReminders(validLocalMidnight());
+    renderGuestIfChanged(true,hadCalendar,true);
+    prefs.end();sleepFor24hOrButton();return;
+  }
   if(!configurationLooksValid()){
     Serial.println("Missing/invalid config.h; no credentials are logged.");
-    if(!hadCalendar){initDisplay();drawStatusPage("Setup required","Wi-Fi / iCloud 설정이 필요합니다.","src/config.h 설정 후 다시 업로드하세요.",C_YELLOW);}
+    if(guestMode){
+      restoreGuestReminders(validLocalMidnight());
+      renderGuestIfChanged(keyAction!=Key0Action::Auto,hadCalendar,false);
+    }else if(!hadCalendar || keyAction==Key0Action::SwitchMode){
+      initDisplay();drawStatusPage("Setup required","Wi-Fi / iCloud 설정이 필요합니다.","src/config.h 설정 후 다시 업로드하세요.",C_YELLOW);
+    }
     prefs.end();sleepFor24hOrButton();return;
   }
   Serial.println("[SYNC] Connecting Wi-Fi...");
@@ -156,10 +241,14 @@ void setup(){
         Serial.println("Holiday source unavailable: cached overlap only; personal calendars remain usable.");
       }
       sortEvents();
+      saveGuestReminders();
     }
   }
   WiFi.disconnect(true);WiFi.mode(WIFI_OFF); // Radio off during the slow ePaper refresh.
-  if(dataOk){
+  if(guestMode){
+    if(!dataOk){upcomingReminderCount=0;restoreGuestReminders(validLocalMidnight());}
+    renderGuestIfChanged(keyAction!=Key0Action::Auto,hadCalendar,dataOk);
+  }else if(dataOk){
     struct tm now={};getLocalTime(&now,100);
     now.tm_hour=0;now.tm_min=0;now.tm_sec=0;now.tm_isdst=-1;
     time_t today=mktime(&now),ws=0,we=0;displayWindow(ws,we);
@@ -167,7 +256,7 @@ void setup(){
     // Update display only when the estimate changes meaningfully (5% buckets).
     hash^=(uint32_t)(batteryPercent<0?255:batteryPercent/5)*16777619u;
     Serial.printf("[DISPLAY] manual=%d prior=%d hash_old=%08x hash_new=%08x\n",manualWake,hadCalendar,(unsigned)prefs.getUInt("renderHash",0),(unsigned)hash);
-    if(manualWake || !hadCalendar || prefs.getUInt("renderHash",0)!=hash){
+    if(keyAction!=Key0Action::Auto || !hadCalendar || prefs.getUInt("renderHash",0)!=hash){
       Serial.println("[DISPLAY] Starting full refresh");
       Serial.flush();
       initDisplay();drawCalendarPage(today,holidayFresh);
@@ -178,7 +267,7 @@ void setup(){
     }else Serial.println("Identical image: panel initialization/refresh skipped.");
   }else{
     Serial.printf("Sync failed: WiFi=%d clock=%d data=%d; retaining prior calendar=%d\n",wifiOk,clockOk,dataOk,hadCalendar);
-    if(!hadCalendar){
+    if(!hadCalendar || keyAction==Key0Action::SwitchMode){
       initDisplay();drawStatusPage("Sync failed",!wifiOk?"Wi-Fi 연결에 실패했습니다.":(!clockOk?"시간 동기화에 실패했습니다.":"캘린더 다운로드 또는 해석에 실패했습니다."),"설정과 시리얼 로그 확인 후 KEY0를 누르세요.",C_RED);
     }
   }
