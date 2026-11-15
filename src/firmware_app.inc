@@ -151,17 +151,14 @@ void restoreGuestReminders(time_t today){
 }
 Key0Action readKey0Action(bool keyWake){
   if(!keyWake)return Key0Action::Auto;
-  // KEY0 is already debounced electrically by EXT1 wake. Measure residual
-  // hold after boot (boot consumes ~300 ms), before Wi-Fi or e-paper work.
+  // Called BEFORE Serial startup delays and battery measurement. The ROM
+  // already used part of the physical press, so only the remaining hold
+  // can be sampled in application firmware.
   uint32_t started=millis();
   while(digitalRead(SYNC_BUTTON_PIN)==LOW && millis()-started<KEY0_MODE_HOLD_MS)
-    delay(15);
+    delay(10);
   bool longHold=digitalRead(SYNC_BUTTON_PIN)==LOW;
-  Key0Action action=classifyKey0(true,longHold);
-  Serial.println(action==Key0Action::SwitchMode?
-                 "[KEY0] Long press: switch display mode":
-                 "[KEY0] Short press: refresh current mode");
-  return action;
+  return classifyKey0(true,longHold);
 }
 void renderGuestIfChanged(bool force,bool hadDisplay,bool dataFresh){
   time_t today=validLocalMidnight();
@@ -182,19 +179,27 @@ void renderGuestIfChanged(bool force,bool hadDisplay,bool dataFresh){
 }
 
 void setup(){
-  Serial.begin(115200,SERIAL_8N1,44,43);
-  delay(300);
-  Serial.println("[BOOT] E1002 CH340 UART diagnostic enabled");
-  rtc_gpio_deinit((gpio_num_t)SYNC_BUTTON_PIN);
-  pinMode(SYNC_BUTTON_PIN,INPUT_PULLUP);quietPeripherals();
-  setenv("TZ",TZ_INFO,1);tzset();
-  measureBattery();
+  // Handle KEY0 first. Previously this was sampled after Serial delay and
+  // ADC measurement, so real 2–3 second holds were mistaken for short taps.
   auto cause=esp_sleep_get_wakeup_cause();
   bool manualWake=cause==ESP_SLEEP_WAKEUP_EXT1;
+  rtc_gpio_deinit((gpio_num_t)SYNC_BUTTON_PIN);
+  pinMode(SYNC_BUTTON_PIN,INPUT_PULLUP);
   Key0Action keyAction=readKey0Action(manualWake);
+  Serial.begin(115200,SERIAL_8N1,44,43);
+  delay(100);
+  Serial.println("[BOOT] E1002 guest-mode KEY0 input v2");
+  Serial.printf("[KEY0] cause=%d action=%s held-now=%d\n",(int)cause,
+                keyAction==Key0Action::SwitchMode?"TOGGLE":
+                (keyAction==Key0Action::Refresh?"REFRESH":"AUTO"),
+                digitalRead(SYNC_BUTTON_PIN)==LOW);
+  quietPeripherals();
+  setenv("TZ",TZ_INFO,1);tzset();
+  measureBattery();
   Serial.printf("CalendarDisplay v1.0.0: %s wake; PSRAM %u\n",manualWake?"KEY0":(cause==ESP_SLEEP_WAKEUP_TIMER?"timer":"power/reset"),ESP.getPsramSize());
   prefs.begin("caldisplay",false);
   bool guestMode=prefs.getBool("guestMode",false);
+  Serial.printf("[GUEST] persisted=%s action=%d\n",guestMode?"guest":"calendar",(int)keyAction);
   if(keyAction==Key0Action::SwitchMode){
     guestMode=guestModeAfterAction(guestMode,keyAction);
     if(!prefs.putBool("guestMode",guestMode))
