@@ -9,7 +9,7 @@ class WeatherTests(unittest.TestCase):
  def setUpClass(cls):
   cls.temp=tempfile.TemporaryDirectory();cls.build=Path(cls.temp.name)
   app=(ROOT/'src/firmware_app.inc').read_text(encoding='utf8')
-  (cls.build/'weather_store_under_test.inc').write_text(app[app.index('void loadWeatherCache()'):app.index('void setup()')],encoding='utf8')
+  (cls.build/'weather_store_under_test.inc').write_text(app[app.index('void loadWeatherCache()'):app.index('// Guest D-Day fallback')],encoding='utf8')
   cls.binary=build_host(cls.build,'host_weather.cpp',sanitize=True)
  @classmethod
  def tearDownClass(cls):cls.temp.cleanup()
