@@ -26,5 +26,10 @@
 // Automatic refresh interval while sleeping.
 #define AUTO_SYNC_HOURS 24
 
+// Optional Open-Meteo location. Set BOTH numeric strings only in config.h.
+// Empty / invalid coordinates disable weather only. Zero is a valid coordinate.
+#define WEATHER_LATITUDE ""
+#define WEATHER_LONGITUDE ""
+
 // Advanced: optional alternative Korea public holiday ICS URL.
 // #define HOLIDAY_ICS_URL "https://..."

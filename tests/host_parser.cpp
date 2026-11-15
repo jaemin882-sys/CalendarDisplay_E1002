@@ -12,7 +12,15 @@ bool lineStartsWithProperty(const String& line,const char* prop){int n=line.inde
 String propertyValue(const String& line){int n=line.indexOf(':');return n<0?String():line.substring(n+1);}
 time_t ws,we;
 void displayWindow(time_t& a,time_t& b){a=ws;b=we;}
+#ifdef HOST_RENDER
+time_t hostNow=0;
+time_t hostClock(time_t*){return hostNow;}
+#define time hostClock
+#endif
 #include "../src/firmware_ics.inc"
+#ifdef HOST_RENDER
+#undef time
+#endif
 #ifndef HOST_RENDER
 int main(int argc,char** argv){
  if(argc!=4)return 2;

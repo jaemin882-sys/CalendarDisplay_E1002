@@ -2,17 +2,19 @@
 import os, subprocess, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-BIN=Path(tempfile.gettempdir())/'e1002_parser_test'
+BIN=Path(tempfile.gettempdir())/('e1002_parser_test.exe' if os.name=='nt' else 'e1002_parser_test')
 def event(uid='a', start='20260929', end=None, extra='', summary='일정'):
     return f'BEGIN:VEVENT\nUID:{uid}\nDTSTART:{start}\n'+(f'DTEND:{end}\n' if end else '')+f'SUMMARY:{summary}\n{extra}\nEND:VEVENT\n'
 def calendar(*events):return 'BEGIN:VCALENDAR\nVERSION:2.0\n'+''.join(events)+'END:VCALENDAR\n'
 class ParserTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
-  subprocess.run(['g++','-std=c++17','-Wall','-Wextra','-fsanitize=address,undefined','-g',str(ROOT/'tests/host_parser.cpp'),'-o',str(BIN)],check=True)
+  sanitizers=[] if os.name=='nt' else ['-fsanitize=address,undefined']
+  subprocess.run(['g++','-std=c++17','-Wall','-Wextra',*sanitizers,'-g',str(ROOT/'tests/host_parser.cpp'),'-o',str(BIN)],check=True)
  def parse(self,raw,success=True,ws='20260913',we='20261025'):
-  with tempfile.NamedTemporaryFile('w',suffix='.ics',encoding='utf8') as f:
-   f.write(raw);f.flush();r=subprocess.run([str(BIN),f.name,ws,we],capture_output=True,text=True)
+  with tempfile.TemporaryDirectory() as td:
+   f=Path(td)/'sample.ics';f.write_text(raw,encoding='utf8')
+   r=subprocess.run([str(BIN),str(f),ws,we],capture_output=True,text=True,encoding='utf8')
   self.assertEqual(r.returncode,0 if success else 1,r.stderr)
   return [x.split('\t') for x in r.stdout.splitlines()]
  def test_folding_escape_alarm(self):

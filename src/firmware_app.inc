@@ -85,6 +85,37 @@ void saveHolidayCache(){
   data+="END:VCALENDAR\n";
   if(data.length()<=32768 && data!=prefs.getString("holidays","")) prefs.putString("holidays",data);
 }
+void loadWeatherCache(){
+  double latitude=0,longitude=0;
+  weatherEnabled=weatherCoordinate(WEATHER_LATITUDE,90,latitude) &&
+    weatherCoordinate(WEATHER_LONGITUDE,180,longitude);
+  if(!weatherEnabled){Serial.println("Weather disabled: coordinates not configured/invalid.");return;}
+  if(!prefs.isKey("weatherV1"))return;
+  uint8_t data[WEATHER_BLOB_SIZE];
+  if(prefs.getBytesLength("weatherV1")!=sizeof(data) ||
+     prefs.getBytes("weatherV1",data,sizeof(data))!=sizeof(data) ||
+     !decodeWeather(data,sizeof(data),weatherCache))
+    Serial.println("Weather cache rejected: invalid length/version/CRC/records.");
+}
+void syncWeather(bool wifiOk,bool clockOk){
+  if(!wifiOk || !clockOk || !weatherEnabled)return;
+  WeatherCache forecast;
+  uint32_t today=weatherDay(time(nullptr));
+  if(!downloadWeather(today,forecast)){
+    Serial.println("Weather unavailable: retaining cached forecasts; calendar sync continues.");return;
+  }
+  WeatherCache next=mergeWeather(weatherCache,forecast,today);
+  uint8_t data[WEATHER_BLOB_SIZE],old[WEATHER_BLOB_SIZE];
+  encodeWeather(next,data);
+  bool same=prefs.getBytesLength("weatherV1")==sizeof(old) &&
+    prefs.getBytes("weatherV1",old,sizeof(old))==sizeof(old) && !memcmp(data,old,sizeof(data));
+  // NVS commits a blob atomically. Do not split its records/checksum across keys.
+  if(!same && prefs.putBytes("weatherV1",data,sizeof(data))!=sizeof(data)){
+    Serial.println("Weather cache write failed: retaining previous forecasts.");return;
+  }
+  weatherCache=next;
+  Serial.printf("Weather: %u cached days; NVS %s\n",next.count,same?"unchanged":"updated");
+}
 void setup(){
   Serial.begin(115200,SERIAL_8N1,44,43);
   delay(300);
@@ -97,6 +128,7 @@ void setup(){
   bool manualWake=cause==ESP_SLEEP_WAKEUP_EXT1;
   Serial.printf("CalendarDisplay v1.0.0: %s wake; PSRAM %u\n",manualWake?"KEY0":(cause==ESP_SLEEP_WAKEUP_TIMER?"timer":"power/reset"),ESP.getPsramSize());
   prefs.begin("caldisplay",false);
+  loadWeatherCache();
   bool hadCalendar=prefs.getBool("hasCalendar",false) || prefs.getUInt("renderHash",0)!=0;
   if(!configurationLooksValid()){
     Serial.println("Missing/invalid config.h; no credentials are logged.");
@@ -109,6 +141,7 @@ void setup(){
   bool clockOk=wifiOk && syncClock();
   Serial.printf("[SYNC] Clock %s\n",clockOk?"ready":"failed");
   bool dataOk=wifiOk && clockOk,holidayFresh=false;
+  syncWeather(wifiOk,clockOk);
   if(dataOk){
     for(uint8_t i=0;i<HOLIDAY_FEED_INDEX;++i){
       if(!strlen(feeds[i].url)) continue;

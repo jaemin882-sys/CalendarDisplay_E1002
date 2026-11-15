@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import calendar
 import json
+import math
 import re
 import threading
 import urllib.request
@@ -55,7 +56,61 @@ def load_config():
     return {
         "memo": cpp_string("CUSTOM_MEMO_TEXT", text, ""),
         "feeds": feeds,
+        "weather_location": (cpp_string("WEATHER_LATITUDE", text), cpp_string("WEATHER_LONGITUDE", text)),
     }
+
+
+# Preview cache lives only for this process; device persistence is tested in C++.
+weather_cache = {}
+weather_location = None
+
+def fetch_weather(location, now):
+    global weather_cache, weather_location
+    try:
+        latitude, longitude = map(float, location)
+        if not (math.isfinite(latitude) and math.isfinite(longitude) and -90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return {}, ''
+    except (ValueError, TypeError):
+        return {}, ''
+    if location != weather_location:
+        weather_cache = {}
+        weather_location = location
+    try:
+        url = (f'https://api.open-meteo.com/v1/forecast?latitude={latitude:.6f}&longitude={longitude:.6f}'
+               '&daily=temperature_2m_min,temperature_2m_max,weather_code&timezone=Asia%2FSeoul'
+               '&forecast_days=16&temperature_unit=celsius')
+        with urllib.request.urlopen(url, timeout=12) as response:
+            raw = response.read(8193)
+        if len(raw) > 8192:
+            raise ValueError('response too large')
+        payload = json.loads(raw)
+        if payload.get('timezone') != 'Asia/Seoul' or payload.get('utc_offset_seconds') != 32400:
+            raise ValueError('timezone')
+        units = payload['daily_units']
+        if any(units[k] != '°C' for k in ('temperature_2m_min', 'temperature_2m_max')):
+            raise ValueError('units')
+        daily = payload['daily']
+        dates, lows, highs, codes = (daily[k] for k in ('time', 'temperature_2m_min', 'temperature_2m_max', 'weather_code'))
+        if not (1 <= len(dates) <= 16 and len(dates) == len(lows) == len(highs) == len(codes)):
+            raise ValueError('array lengths')
+        next_weather = {}
+        supported = {0,1,2,3,45,48,51,53,55,56,57,61,63,65,66,67,71,73,75,77,80,81,82,85,86,95,96,97,99}
+        for i, (day, low, high, code) in enumerate(zip(dates, lows, highs, codes)):
+            if day != (now.date() + timedelta(days=i)).isoformat():
+                raise ValueError('date')
+            if low is None or high is None or code is None:
+                continue
+            if (type(low) not in (int,float) or type(high) not in (int,float) or type(code) is not int
+                or not -100 <= low <= high <= 100 or code not in supported):
+                raise ValueError('weather value')
+            tenths = lambda v: int(math.copysign(math.floor(abs(v)*10+0.5),v))
+            next_weather[day] = {'low':tenths(low),'high':tenths(high),'code':code}
+        oldest = (now.date()-timedelta(days=20)).isoformat()
+        weather_cache = {k:v for k,v in weather_cache.items() if oldest <= k < now.date().isoformat()}
+        weather_cache.update(next_weather)
+        return weather_cache, ''
+    except Exception:
+        return weather_cache, '날씨 조회 실패: 이 프리뷰 세션의 마지막 예보를 유지합니다.'
 
 
 def fetch_ics(url: str) -> str:
@@ -268,6 +323,7 @@ def build_payload():
             })
 
     last_day = window_end - timedelta(days=1)
+    weather, weather_error = fetch_weather(cfg['weather_location'], now)
     return {
         "start": window_start.date().isoformat(),
         "end": last_day.date().isoformat(),
@@ -276,6 +332,8 @@ def build_payload():
         "days": by_day,
         "holidays": holidays,
         "errors": errors,
+        "weather": weather,
+        "weather_error": weather_error,
     }
 
 

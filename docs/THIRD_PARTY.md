@@ -18,6 +18,11 @@ U8g2 adapter software is copyright (c) 2018, olikraus@gmail.com, under the BSD 2
 
 src/tls_roots.h contains 16 public root CA PEM certificates selected from the Mozilla CA distribution via certifi 2026.7.22: DigiCert, GTS, ISRG, USERTrust and Sectigo subject families. Source: https://github.com/certifi/python-certifi ; certifi uses the Mozilla Public License 2.0 (https://www.mozilla.org/MPL/2.0/). Root certificates are public trust material, not private keys. Selection is intentionally finite; future server CA changes require maintenance.
 
+## Weather
+
+- Open-Meteo forecast API and WMO codes: https://open-meteo.com/en/docs . Weather data is provided under CC BY 4.0: https://open-meteo.com/en/terms . Offline preview weather is illustrative test data, not a live forecast or observation.
+- ArduinoJson 7.4.3 (MIT): https://github.com/bblanchon/ArduinoJson/tree/v7.4.3 . Used to validate bounded weather responses; version pinned in platformio.ini.
+
 ## Holiday feed
 
 Google Calendar Korea official holiday public ICS is used at runtime. Live holiday data and private iCloud data are not committed. The offline screenshot/example contains a small illustrative September–October 2026 calendar; it is not an authoritative holiday dataset.

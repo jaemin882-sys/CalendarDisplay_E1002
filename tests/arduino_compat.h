@@ -7,6 +7,11 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#ifdef _WIN32
+inline int setenv(const char* key,const char* value,int){return _putenv_s(key,value);}
+inline tm* localtime_r(const time_t* t,tm* out){return localtime_s(out,t)==0?out:nullptr;}
+inline tm* gmtime_r(const time_t* t,tm* out){return gmtime_s(out,t)==0?out:nullptr;}
+#endif
 class String {
  std::string s;
 public:
@@ -30,5 +35,8 @@ public:
  friend bool operator!=(const String& a,const String& b){return !(a==b);}
  friend bool operator<(const String& a,const String& b){return a.s<b.s;}
 };
-struct SerialStub {template<class... T> void printf(const char* f,T...args){std::fprintf(stderr,f,args...);} };
+struct SerialStub {
+ template<class... T> void printf(const char* f,T...args){std::fprintf(stderr,f,args...);}
+ void println(const char* s){std::fprintf(stderr,"%s\n",s);}
+};
 inline SerialStub Serial;

@@ -15,6 +15,15 @@
 #include <GxEPD2_7C.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
+#include "weather.h"
+#ifndef WEATHER_LATITUDE
+#define WEATHER_LATITUDE ""
+#endif
+#ifndef WEATHER_LONGITUDE
+#define WEATHER_LONGITUDE ""
+#endif
+WeatherCache weatherCache;
+bool weatherEnabled=false;
 // E1002 CH340 USB-UART uses GPIO43 TX / GPIO44 RX (Serial1).
 // Route firmware diagnostics through the same COM port as the ROM boot log.
 #define Serial Serial1

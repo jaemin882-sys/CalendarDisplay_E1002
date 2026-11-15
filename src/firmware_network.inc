@@ -51,3 +51,27 @@ bool downloadAndParseFeed(uint8_t index){
   Serial.printf("Feed %u: %u bytes; free heap %u, PSRAM %u\n",index+1,(unsigned)body.used,ESP.getFreeHeap(),ESP.getFreePsram());
   return parseIcsText(body.data,index);
 }
+
+#include "firmware_weather_json.inc"
+bool downloadWeather(uint32_t today,WeatherCache& forecast){
+  double latitude=0,longitude=0;
+  if(!weatherCoordinate(WEATHER_LATITUDE,90,latitude) ||
+     !weatherCoordinate(WEATHER_LONGITUDE,180,longitude))return false;
+  String url="https://api.open-meteo.com/v1/forecast?latitude="+String(latitude,6)+
+    "&longitude="+String(longitude,6)+"&daily=temperature_2m_min,temperature_2m_max,weather_code"
+    "&timezone=Asia%2FSeoul&forecast_days=16&temperature_unit=celsius";
+  WiFiClientSecure client;client.setCACert(TLS_ROOTS);client.setHandshakeTimeout(15);
+  HTTPClient http;http.setConnectTimeout(12000);http.setTimeout(12000);
+  if(!http.begin(client,url))return false;
+  http.addHeader("Accept","application/json");http.addHeader("Accept-Encoding","identity");
+  int code=http.GET();
+  if(code!=HTTP_CODE_OK){Serial.printf("Weather HTTP/TLS failure: %d\n",code);http.end();return false;}
+  const size_t limit=8192;int declared=http.getSize();
+  if(declared>(int)limit){http.end();return false;}
+  IcsBuffer body(limit);
+  if(!body.data){http.end();return false;}
+  int received=http.writeToStream(&body);http.end();
+  if(received<0 || body.used!=(size_t)received || (declared>=0 && declared!=received) ||
+     memchr(body.data,0,body.used))return false;
+  return parseWeatherJson(body.data,body.used,today,forecast);
+}

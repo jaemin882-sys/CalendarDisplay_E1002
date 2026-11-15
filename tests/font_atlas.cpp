@@ -4,12 +4,12 @@
 int main(){
  u8g2.begin(display);u8g2.setForegroundColor(C_BLACK);
  std::cout<<"{";
- const char* names[]={"body","title","day","more"};
- const uint8_t* fonts[]={nullptr,u8g2_font_helvB14_tf,u8g2_font_helvB10_tf,u8g2_font_helvR08_tf};
- for(int fontIndex=0;fontIndex<4;++fontIndex){
+ const char* names[]={"body","title","day","more","weatherSmall","weatherTiny"};
+ const uint8_t* fonts[]={nullptr,u8g2_font_helvB14_tf,u8g2_font_helvB10_tf,u8g2_font_helvR08_tf,u8g2_font_5x7_tf,u8g2_font_4x6_tf};
+ for(int fontIndex=0;fontIndex<6;++fontIndex){
   if(fontIndex)std::cout<<",";std::cout<<"\""<<names[fontIndex]<<"\":{";bool comma=false;
   for(int cp=32;cp<=0xd7a3;++cp){
-   if(cp>126 && !(fontIndex==0 && ((cp>=0xac00 && cp<=0xd7a3)||cp==0xb7)))continue;
+   if(cp>126 && cp!=0xb0 && !(fontIndex==0 && ((cp>=0xac00 && cp<=0xd7a3)||cp==0xb7)))continue;
    char utf8[8]={0};
    if(cp<128)utf8[0]=cp;
    else if(cp<2048){utf8[0]=0xc0|(cp>>6);utf8[1]=0x80|(cp&63);}

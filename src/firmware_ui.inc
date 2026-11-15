@@ -239,6 +239,59 @@ int upcomingAnniversaries(time_t today,String labels[2],int days[2]){
   return count;
 }
 
+// All weather marks fit a 13x13 box. Shapes remain distinct without color.
+void drawWeatherIcon(int x,int y,WeatherIcon icon){
+  if(icon==WeatherIcon::Snow){
+    display.drawLine(x+6,y+1,x+6,y+11,C_BLUE);
+    display.drawLine(x+1,y+3,x+11,y+9,C_BLUE);
+    display.drawLine(x+1,y+9,x+11,y+3,C_BLUE);
+    display.drawLine(x+4,y+1,x+6,y+3,C_BLUE);display.drawLine(x+6,y+3,x+8,y+1,C_BLUE);
+    display.drawLine(x+4,y+11,x+6,y+9,C_BLUE);display.drawLine(x+6,y+9,x+8,y+11,C_BLUE);
+    return;
+  }
+  if(icon==WeatherIcon::Sun || icon==WeatherIcon::PartlyCloudy){
+    int cx=x+(icon==WeatherIcon::Sun?6:4),cy=y+4;
+    display.fillCircle(cx,cy,3,C_BLACK);display.fillCircle(cx,cy,2,C_YELLOW);
+    display.drawPixel(cx,cy-4,C_BLACK);display.drawPixel(cx,cy+4,C_BLACK);
+    display.drawPixel(cx-4,cy,C_BLACK);display.drawPixel(cx+4,cy,C_BLACK);
+    display.drawPixel(cx-3,cy-3,C_BLACK);display.drawPixel(cx+3,cy-3,C_BLACK);
+    display.drawPixel(cx-3,cy+3,C_BLACK);display.drawPixel(cx+3,cy+3,C_BLACK);
+    if(icon==WeatherIcon::Sun)return;
+  }
+  display.fillCircle(x+3,y+6,2,C_BLACK);display.fillCircle(x+7,y+5,3,C_BLACK);
+  display.fillCircle(x+10,y+7,2,C_BLACK);display.fillRect(x+3,y+6,8,4,C_BLACK);
+  if(icon==WeatherIcon::Rain){
+    for(int i=0;i<3;++i)display.drawLine(x+3+i*4,y+10,x+2+i*4,y+12,C_BLUE);
+  }
+}
+
+int drawDayWeather(int right,int y,int available,const DailyWeather& weather){
+  char text[24];snprintf(text,sizeof(text),"%d/%d°",weatherDegrees(weather.low),weatherDegrees(weather.high));
+  selectFont(u8g2_font_helvR08_tf);
+  int width=u8g2.getUTF8Width(text);
+  if(width+UI_WEATHER_ICON+UI_WEATHER_GAP>available){
+    selectFont(u8g2_font_5x7_tf);width=u8g2.getUTF8Width(text);
+  }
+  if(width+UI_WEATHER_ICON+UI_WEATHER_GAP>available){
+    selectFont(u8g2_font_4x6_tf);width=u8g2.getUTF8Width(text);
+  }
+  int left=right-width-UI_WEATHER_GAP-UI_WEATHER_ICON;
+  u8g2.setForegroundColor(C_BLACK);u8g2.setCursor(right-width,y+14);u8g2.print(text);
+  drawWeatherIcon(left,y+4,weatherIcon(weather.code));return left;
+}
+
+void drawHolidayHeader(int x,int y,const String& holiday,int width){
+  if(width<=0 || holiday.isEmpty())return;
+  String text;int end=takeEventTextLine(holiday,0,width,text);
+  if(end==(int)holiday.length()){drawEventText(x,y,text,C_RED,width);return;}
+  // Draw the ellipsis as three pixels: no dependency on a missing Unicode glyph.
+  const int ellipsisWidth=5;
+  if(width<ellipsisWidth)return;
+  takeEventTextLine(holiday,0,width-ellipsisWidth-1,text);
+  int used=drawEventText(x,y,text,C_RED,width);
+  for(int i=0;i<3;++i)display.drawPixel(x+used+i*2,y,C_RED);
+}
+
 uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayFresh){
   uint32_t h=2166136261u;
   auto feedBytes=[&](const String& s){
@@ -249,7 +302,14 @@ uint32_t computeRenderHash(time_t windowStart,time_t todayMidnight,bool holidayF
   feedBytes(String(windowBuf));
   feedBytes(CUSTOM_MEMO_TEXT);
   feedBytes(String((long long)todayMidnight));
-  feedBytes("layout-icloud-dday-month-divider-v8");
+  feedBytes("layout-daily-weather-v9");
+  // Hash rendered values only: raw tenths/WMO changes with identical pixels do not refresh.
+  for(int slot=0;slot<42;++slot){
+    const DailyWeather* w=weatherEnabled?weatherForDay(weatherCache,weatherDay(windowStart+(time_t)slot*86400)):nullptr;
+    if(!w){feedBytes("|");continue;}
+    char text[40];snprintf(text,sizeof(text),"|%d/%d/%d",weatherDegrees(w->low),weatherDegrees(w->high),(int)weatherIcon(w->code));
+    feedBytes(text);
+  }
   for(int i=0;i<upcomingReminderCount;++i){
     feedBytes(upcomingReminders[i].label);
     feedBytes(String((long long)upcomingReminders[i].day));
@@ -409,10 +469,11 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
       else snprintf(dayText,sizeof(dayText),"%d",cellTm.tm_mday);
       int dateWidth=u8g2.getUTF8Width(dayText);
       u8g2.setCursor(x+5,y+15);u8g2.print(dayText);
-      if(holiday.length()){
-        int hx=x+5+dateWidth+4;
-        drawEventText(hx,y+15,fitEventText(holiday,CELL_W-(hx-x)-5),C_RED,CELL_W-(hx-x)-5);
-      }
+      int headerRight=x+CELL_W-UI_WEATHER_RIGHT;
+      const DailyWeather* weather=weatherEnabled?weatherForDay(weatherCache,weatherDay(cellStart)):nullptr;
+      if(weather)headerRight=drawDayWeather(headerRight,y,headerRight-(x+5+dateWidth+UI_HEADER_GAP),*weather)-UI_HEADER_GAP;
+      int hx=x+5+dateWidth+UI_HEADER_GAP;
+      drawHolidayHeader(hx,y+15,holiday,headerRight-hx);
       int dayEventIndices[3];
       int dayEventCount=0;
       for(int i=0;i<eventCount;++i){

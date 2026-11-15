@@ -14,11 +14,26 @@ public:
  virtual void drawPixel(int x,int y,uint16_t c){if(x>=0 && x<800 && y>=0 && y<480)pixels[y][x]=c;}
  void drawFastHLine(int x,int y,int n,uint16_t c){for(int i=0;i<n;++i)drawPixel(x+i,y,c);}
  void drawFastVLine(int x,int y,int n,uint16_t c){for(int i=0;i<n;++i)drawPixel(x,y+i,c);}
- void drawLine(int x,int y,int x1,int y1,uint16_t c){if(x==x1)drawFastVLine(x,y,y1-y+1,c);else drawFastHLine(x,y,x1-x+1,c);}
+ void drawLine(int x,int y,int x1,int y1,uint16_t c){
+  bool steep=abs(y1-y)>abs(x1-x);if(steep){std::swap(x,y);std::swap(x1,y1);}
+  if(x>x1){std::swap(x,x1);std::swap(y,y1);}
+  int dx=x1-x,dy=abs(y1-y),err=dx/2,step=y<y1?1:-1;
+  for(;x<=x1;++x){if(steep)drawPixel(y,x,c);else drawPixel(x,y,c);err-=dy;if(err<0){y+=step;err+=dx;}}
+ }
  virtual void fillScreen(uint16_t c){for(auto& row:pixels)for(auto& p:row)p=c;}
  void fillRect(int x,int y,int w,int h,uint16_t c){for(int i=0;i<h;++i)drawFastHLine(x,y+i,w,c);}
  void drawRect(int x,int y,int w,int h,uint16_t c){drawFastHLine(x,y,w,c);drawFastHLine(x,y+h-1,w,c);drawFastVLine(x,y,h,c);drawFastVLine(x+w-1,y,h,c);}
- void fillCircle(int x,int y,int r,uint16_t c){for(int j=-r;j<=r;++j)for(int i=-r;i<=r;++i)if(i*i+j*j<=r*r)drawPixel(x+i,y+j,c);}
+ void fillCircle(int x0,int y0,int r,uint16_t c){
+  // Adafruit midpoint-circle raster, including the filled helper's spans.
+  drawFastVLine(x0,y0-r,2*r+1,c);
+  int f=1-r,dx=1,dy=-2*r,x=0,y=r,px=x,py=y;
+  while(x<y){
+   if(f>=0){--y;dy+=2;f+=dy;}++x;dx+=2;f+=dx;
+   if(x<y+1){drawFastVLine(x0+x,y0-y,2*y+1,c);drawFastVLine(x0-x,y0-y,2*y+1,c);}
+   if(y!=py){drawFastVLine(x0+py,y0-px,2*px+1,c);drawFastVLine(x0-py,y0-px,2*px+1,c);py=y;}
+   px=x;
+  }
+ }
  void setFullWindow(){} void firstPage(){} bool nextPage(){return false;}
 };
 
