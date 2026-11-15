@@ -16,6 +16,7 @@
 #include <U8g2_for_Adafruit_GFX.h>
 #include "config.h"
 #include "weather.h"
+#include "guest_mode.h"
 #ifndef WEATHER_LATITUDE
 #define WEATHER_LATITUDE ""
 #endif
