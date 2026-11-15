@@ -40,7 +40,29 @@ class PreviewTests(unittest.TestCase):
    for row in range(6):
     for y in range(50+row*71+19,50+(row+1)*71):
      self.assertEqual(actual[y*2400:(y+1)*2400],original[y*2400:(y+1)*2400])
- def render(self,p):
+ def test_guest_hides_personal_events_but_keeps_public_ddays_and_weather(self):
+  p={'start':'2026-11-01','end':'2026-12-12','today':'2026-11-15',
+     'memo':'온이네집','days':{
+       '2026-11-15':[{'text':'병원예약'}],
+       '2026-12-03':[{'text':'엄마생일'}]
+     },'holidays':{},'weather':{
+       '2026-11-15':{'low':20,'high':140,'code':0},
+       '2026-11-16':{'low':10,'high':130,'code':61}
+     },'errors':[],'battery':85}
+  guest=self.render(p,guest=True)
+  changed=copy.deepcopy(p);changed['days']['2026-11-15']=[{'text':'비밀업무 12345'}]
+  self.assertEqual(guest,self.render(changed,guest=True),
+                   'Private appointment text must never affect guest pixels')
+  self.assertNotEqual(self.render(p),self.render(changed),
+                      'Calendar still renders the private appointment normally')
+  changed=copy.deepcopy(p);changed['weather']['2026-11-15']['high']=190
+  self.assertNotEqual(guest,self.render(changed,guest=True),
+                      'Guest page must reflect weather changes')
+  changed=copy.deepcopy(p);changed['days']['2026-12-03'][0]['text']='기념일 이름바꿈'
+  self.assertNotEqual(guest,self.render(changed,guest=True),
+                      'Guest page must show public D-Day titles')
+
+ def render(self,p,guest=False):
    td=self.td;events=[];holidays=[];uid=0
    for day,items in p['days'].items():
     for item in items:
@@ -54,7 +76,10 @@ class PreviewTests(unittest.TestCase):
     (td/f'{name}.ics').write_text('BEGIN:VCALENDAR\n'+''.join(items)+'END:VCALENDAR\n',encoding='utf8')
    epoch=date(1970,1,1)
    (td/'weather.txt').write_text('\n'.join(f'{(date.fromisoformat(k)-epoch).days} {v["low"]} {v["high"]} {v["code"]}' for k,v in p.get('weather',{}).items()),encoding='utf8')
-   subprocess.run([str(self.binary),str(td/'sample.ics'),str(td/'native.ppm'),str(td/'holiday.ics'),p['start'].replace('-',''),p['today'].replace('-',''),str(td/'weather.txt'),str(p.get('battery',-1))],check=True)
+   args=[str(self.binary),str(td/'sample.ics'),str(td/'native.ppm'),str(td/'holiday.ics'),
+         p['start'].replace('-',''),p['today'].replace('-',''),str(td/'weather.txt'),str(p.get('battery',-1))]
+   if guest:args.append('guest')
+   subprocess.run(args,check=True)
    return (td/'native.ppm').read_bytes().split(b'\n',3)[3]
  def compare_pixels(self,p):
    actual=self.render(p)
