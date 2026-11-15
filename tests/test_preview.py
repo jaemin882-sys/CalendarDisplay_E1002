@@ -77,4 +77,31 @@ class PreviewTests(unittest.TestCase):
    (calendar(event(start='20260112',extra='RRULE:FREQ=MONTHLY;BYDAY=2MO')),2),
    (calendar(event(extra='RRULE:FREQ=DAILY;COUNT=3'),event(start='20261002',extra='RECURRENCE-ID:20260930')),3)]
   for raw,count in cases:self.assertEqual(len(preview.parse_ics(raw,'test','black',start,end)),count)
+ def test_live_preview_weather_cache_and_failures(self):
+  import io
+  from datetime import datetime
+  from unittest.mock import patch
+  now=datetime(2026,11,1,tzinfo=preview.KST)
+  preview.weather_cache={};preview.weather_location=None
+  payload={'timezone':'Asia/Seoul','utc_offset_seconds':32400,
+   'daily_units':{'temperature_2m_min':'°C','temperature_2m_max':'°C'},
+   'daily':{'time':['2026-11-01'],'temperature_2m_min':[-12.4],'temperature_2m_max':[17.3],'weather_code':[71]}}
+  def fetch(p,when=now):
+   with patch.object(preview.urllib.request,'urlopen',return_value=io.BytesIO(json.dumps(p).encode())):
+    return preview.fetch_weather(('0','0'),when)
+  cache,error=fetch(payload)
+  self.assertFalse(error);self.assertEqual(cache,{'2026-11-01':{'low':-124,'high':173,'code':71}})
+  self.assertEqual(preview.fetch_weather(('',''),now),({},''))
+  with patch.object(preview.urllib.request,'urlopen',side_effect=OSError('offline')):
+   kept,error=preview.fetch_weather(('0','0'),now)
+   self.assertTrue(error);self.assertEqual(kept,cache)
+  bad=copy.deepcopy(payload);bad['daily']['temperature_2m_min']=['wrong']
+  kept,error=fetch(bad);self.assertTrue(error);self.assertEqual(kept,cache)
+  payload['daily']['time']=['2026-11-02'];payload['daily']['temperature_2m_min']=[8]
+  next_cache,error=fetch(payload,now+timedelta(days=1))
+  self.assertFalse(error);self.assertEqual(next_cache['2026-11-01']['low'],-124)
+  self.assertEqual(next_cache['2026-11-02']['low'],80)
+  payload['daily']['temperature_2m_min']=[None]
+  missing,error=fetch(payload,now+timedelta(days=1))
+  self.assertFalse(error);self.assertNotIn('2026-11-02',missing);self.assertIn('2026-11-01',missing)
 if __name__=='__main__':unittest.main()
