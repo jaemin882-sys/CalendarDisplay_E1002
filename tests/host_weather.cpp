@@ -2,6 +2,7 @@
 #include "host_render.cpp"
 #undef main
 #include "../src/firmware_weather_json.inc"
+#include "../src/guest_mode.h"
 #include <cassert>
 
 const char* testLatitude="0";
@@ -33,6 +34,12 @@ int main(int argc,char** argv){
   if(!ok)assert(result.count==1 && result.days[0].day==weatherDate("2026-10-31"));
   return 0;
  }
+ assert(classifyKey0(false,true)==Key0Action::Auto);
+ assert(classifyKey0(true,false)==Key0Action::Refresh);
+ assert(classifyKey0(true,true)==Key0Action::SwitchMode);
+ assert(!guestModeAfterAction(false,Key0Action::Refresh));
+ assert(guestModeAfterAction(false,Key0Action::SwitchMode));
+ assert(!guestModeAfterAction(true,Key0Action::SwitchMode));
  double coordinate=0;
  assert(!weatherCoordinate("",90,coordinate));assert(!weatherCoordinate("nan",90,coordinate));
  assert(!weatherCoordinate("91",90,coordinate));assert(!weatherCoordinate("1x",90,coordinate));
