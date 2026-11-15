@@ -520,6 +520,147 @@ void drawCalendarPage(time_t todayMidnight,bool syncOk){
   }while(display.nextPage());
 }
 
+// Guest mode intentionally renders no personal event grid. D-Days are public
+// per household preference; weather comes from the same persisted cache.
+int scaledKoreanWidth(const String& label,int scale){
+  int width=0;
+  for(int i=0;i<(int)label.length();){
+    char glyph[8]={0};const uint8_t* font=nullptr;
+    int bytes=readGlyph(label,i,glyph,font);
+    width+=glyphWidthFor(glyph,font)*scale;i+=bytes;
+  }
+  return width;
+}
+void drawScaledKorean(int x,int baseline,const String& label,int scale,uint16_t color){
+  initCompactGlyph();
+  for(int i=0;i<(int)label.length();){
+    char glyph[8]={0};const uint8_t* font=nullptr;
+    int bytes=readGlyph(label,i,glyph,font);
+    int width=min(24,glyphWidthFor(glyph,font));
+    compactGlyphCanvas.fillScreen(0);
+    compactGlyphPrinter.setFont(font);compactGlyphPrinter.setFontMode(1);
+    compactGlyphPrinter.setForegroundColor(1);
+    compactGlyphPrinter.setBackgroundColor(0);
+    compactGlyphPrinter.setCursor(0,24);compactGlyphPrinter.print(glyph);
+    for(int py=0;py<32;++py)
+      for(int px=0;px<width;++px)
+        if(compactGlyphCanvas.getPixel(px,py))
+          display.fillRect(x+px*scale,baseline+(py-24)*scale,scale,scale,color);
+    x+=width*scale;i+=bytes;
+  }
+}
+uint32_t computeGuestRenderHash(time_t todayMidnight){
+  uint32_t h=2166136261u;
+  auto feedBytes=[&](const String& s){
+    for(size_t i=0;i<s.length();++i){h^=(uint8_t)s[i];h*=16777619u;}
+  };
+  feedBytes("guest-weather-dday-v1");
+  feedBytes(CUSTOM_MEMO_TEXT);
+  feedBytes(String((long long)todayMidnight));
+  for(int offset=0;offset<2;++offset){
+    const DailyWeather* w=(weatherEnabled && todayMidnight>0)?
+      weatherForDay(weatherCache,weatherDay(todayMidnight+(time_t)offset*86400)):nullptr;
+    if(!w){feedBytes("|none");continue;}
+    char value[40];
+    snprintf(value,sizeof(value),"|%d/%d/%d",weatherDegrees(w->low),
+             weatherDegrees(w->high),(int)weatherIcon(w->code));
+    feedBytes(value);
+  }
+  String labels[2];int days[2]={0,0};
+  int count=todayMidnight>0?upcomingAnniversaries(todayMidnight,labels,days):0;
+  for(int i=0;i<count;++i){feedBytes(labels[i]);feedBytes(String(days[i]));}
+  return h;
+}
+void drawGuestPage(time_t todayMidnight,bool dataFresh){
+  display.setFullWindow();
+  display.firstPage();
+  do{
+    display.fillScreen(C_WHITE);
+    display.fillRect(8,7,784,4,C_GREEN);
+    struct tm now={};
+    if(todayMidnight>0){
+      localtime_r(&todayMidnight,&now);
+      char dateText[24];
+      snprintf(dateText,sizeof(dateText),"%04d.%02d.%02d",
+               now.tm_year+1900,now.tm_mon+1,now.tm_mday);
+      selectFont(u8g2_font_helvB10_tf);
+      u8g2.setForegroundColor(C_BLACK);u8g2.setCursor(30,35);
+      u8g2.print(dateText);
+    }
+    if(batteryPercent>=0){
+      char batteryText[12];
+      snprintf(batteryText,sizeof(batteryText),"%d%%",batteryPercent);
+      selectFont(u8g2_font_helvB10_tf);
+      u8g2.setForegroundColor(C_BLACK);
+      u8g2.setCursor(775-u8g2.getUTF8Width(batteryText),35);
+      u8g2.print(batteryText);
+    }
+    // Original six-color e-paper artwork: hill lines and a sunrise.
+    display.fillCircle(401,71,18,C_YELLOW);
+    display.drawLine(303,115,354,75,C_GREEN);
+    display.drawLine(354,75,411,115,C_GREEN);
+    display.drawLine(376,115,444,59,C_BLUE);
+    display.drawLine(444,59,507,115,C_BLUE);
+    display.drawLine(448,115,484,87,C_GREEN);
+    display.drawLine(484,87,519,115,C_GREEN);
+
+    String title(CUSTOM_MEMO_TEXT);
+    int scale=scaledKoreanWidth(title,2)<=600?2:1;
+    int titleWidth=scaledKoreanWidth(title,scale);
+    drawScaledKorean((800-titleWidth)/2,164,title,scale,C_BLACK);
+    selectFont(u8g2_font_helvR10_tf);
+    u8g2.setForegroundColor(C_BLACK);
+    const char* greeting="Welcome Home";
+    u8g2.setCursor((800-u8g2.getUTF8Width(greeting))/2,190);
+    u8g2.print(greeting);
+    display.drawLine(55,207,745,207,C_BLACK);
+
+    // Weather: two large uncluttered cards, today and tomorrow.
+    for(int offset=0;offset<2;++offset){
+      int cardX=64+offset*342;
+      display.drawRect(cardX,223,326,104,C_BLACK);
+      drawUtf8Korean(cardX+20,251,offset==0?String("오늘"):String("내일"),C_BLACK,180);
+      const DailyWeather* w=(weatherEnabled && todayMidnight>0)?
+        weatherForDay(weatherCache,weatherDay(todayMidnight+(time_t)offset*86400)):nullptr;
+      if(w){
+        drawWeatherIcon(cardX+27,276,weatherIcon(w->code));
+        char temperature[32];
+        snprintf(temperature,sizeof(temperature),"%d / %d°",
+                 weatherDegrees(w->low),weatherDegrees(w->high));
+        selectFont(u8g2_font_helvB18_tf);
+        u8g2.setForegroundColor(C_BLACK);
+        u8g2.setCursor(cardX+70,305);u8g2.print(temperature);
+      }else drawUtf8Korean(cardX+24,302,String("예보 없음"),C_BLACK,276);
+    }
+
+    display.drawLine(55,346,745,346,C_BLACK);
+    String heading("다가오는 기념일");
+    drawUtf8Korean((800-scaledKoreanWidth(heading,1))/2,375,heading,C_BLACK,500);
+    String labels[2];int days[2]={0,0};
+    int count=todayMidnight>0?upcomingAnniversaries(todayMidnight,labels,days):0;
+    if(count==0){
+      String empty("표시할 기념일 없음");
+      drawUtf8Korean((800-scaledKoreanWidth(empty,1))/2,428,empty,C_BLACK,550);
+    }else{
+      for(int i=0;i<count;++i){
+        int x=count==1?240:(i==0?78:424);
+        drawUtf8Korean(x,412,fitText(labels[i],290),C_BLACK,290);
+        char countdown[20];
+        if(days[i]==0)snprintf(countdown,sizeof(countdown),"D-DAY");
+        else snprintf(countdown,sizeof(countdown),"D-%d",days[i]);
+        selectFont(u8g2_font_helvB18_tf);
+        u8g2.setForegroundColor(C_BLUE);
+        u8g2.setCursor(x,446);u8g2.print(countdown);
+      }
+    }
+    if(!dataFresh){
+      selectFont(u8g2_font_helvR08_tf);
+      u8g2.setForegroundColor(C_BLACK);
+      u8g2.setCursor(26,470);u8g2.print("OFFLINE");
+    }
+  }while(display.nextPage());
+}
+
 void drawStatusPage(const String& title,const String& line1,const String& line2,uint16_t accent){
   display.setFullWindow();
   display.firstPage();
